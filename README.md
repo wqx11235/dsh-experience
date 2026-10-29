@@ -6,6 +6,14 @@
 
 没有模型调用、没有向量库、没有联网上报。检索是纯本地打分，索引每 3 秒跟磁盘对齐。
 
+<p align="center">
+  <img src="assets/demo.gif" alt="dsh-experience 演示" width="860">
+</p>
+
+<p align="center">
+  <a href="https://github.com/wqx11235/dsh-experience/releases/latest">▶ 45 秒完整演示（1080p，中英字幕）</a>
+</p>
+
 ## 为什么不是"再写一段提示词"
 
 提示词解决"agent 该怎么做"，解决不了"同一台机器上的同一个报错又出现一次"。经验库补的是后者：
