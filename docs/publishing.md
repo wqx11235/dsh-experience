@@ -78,8 +78,9 @@ description:
 - [x] MIT LICENSE
 - [x] README（机制/安装/隐私/开发）
 - [x] 公开起步库 + 隐私闸门 + 死链闸门
-- [x] 无宿主集成测试（`test/host-harness.mjs`）
-- [ ] GitHub 仓库创建与推送（需要账号操作）
-- [ ] `dsh-plugin` topic
-- [ ] awesome-dsh-plugin PR（仓库满 1 天后）
-- [ ] npm 发布（可选）
+- [x] 无宿主集成测试（`test/host-harness.mjs`，CI 在无 dsh-tools 时用 stub 跑）
+- [x] GitHub 仓库已创建并推送：<https://github.com/wqx11235/dsh-experience>
+- [x] GitHub Actions CI 通过（integration / linkcheck / privacy）
+- [ ] 仓库 About 描述 + `dsh-plugin` topic（仓库设置里加，一次点击）
+- [ ] awesome-dsh-plugin PR（仓库创建满 1 天后：2026-10-30 起）
+- [ ] npm 发布（可选；本机 `npm whoami` 未登录）
