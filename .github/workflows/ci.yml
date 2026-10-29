@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: private / public library boundary
+        run: node tools/check-boundaries.mjs
       - name: host-free integration tests
         run: node test/host-harness.mjs
       - name: public library link check

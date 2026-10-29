@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process'
 
 const steps = [
+  ['boundaries', ['tools/check-boundaries.mjs']],
   ['host-harness', ['test/host-harness.mjs']],
   ['linkcheck', ['test/linkcheck.mjs', 'library']],
   ['privacy', ['tools/privacy-rules.mjs', 'library']],

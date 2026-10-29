@@ -66,6 +66,21 @@ HTTP 端点（面板同源使用）：`/experience/list`、`/search`、`/read`�
     seed: false
 ```
 
+## 两条库的边界（不要混）
+
+| | 私有库 | 公开起步库 |
+| --- | --- | --- |
+| 位置 | 你机器上的库根（默认 `~/.dsh/experience`） | 仓库 `library/` |
+| 来源 | 你的使用积累 | 白名单 + 脱敏构建 |
+| 谁写 | 运行时（采集 / 认领 / 归档） | 只有 `tools/build-library.mjs` |
+| 是否发布 | **永不** | 随 npm/git 包 |
+| 检查 | — | 隐私 + 死链 + 边界 |
+
+- 公开库**只**从私有库按 `tools/public-entries.txt` 生成；运行时代码从不写 `library/`。
+- 插件首次运行时把 `library/` 播种到**空的**库根；已有私有库不会被覆盖（`seed: false` 可关）。
+- 包内 `cordis.patch.yml` 不写任何机器路径；私有库用 profile patch 的 `experienceRoot` 指过去。
+- `node tools/check-boundaries.mjs` 断言两边不混（CI 每次跑）：公开库条目 = 白名单、仓库无 `.meta.json`/`.drafts`、无私有分类、patch 无绝对路径。
+
 ## 隐私
 
 - 全部数据在本地；插件**没有任何网络请求**（唯一例外是你配置的 `verify: url` 校验）。
