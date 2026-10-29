@@ -16,6 +16,7 @@ const STAGE = resolve('test/.stage')
 const TMP = resolve('test/.tmp-lib')
 
 let failures = 0
+let HAS_REAL_TOOLS = false
 function check(name, cond, detail) {
   if (cond) { console.log(`  ok   ${name}`) } else { failures += 1; console.log(`  FAIL ${name}${detail ? ' :: ' + JSON.stringify(detail).slice(0, 400) : ''}`) }
 }
@@ -36,6 +37,7 @@ async function stage() {
   // checkout / CI where the DSH packages are not installed.
   const realTools = await findDshTools()
   if (realTools) {
+    HAS_REAL_TOOLS = true
     await writeFile(join(STAGE, 'node_modules/@deepseek-ai/dsh-tools/index.js'), [
       `export { defineTool } from ${JSON.stringify(pathToFileURL(realTools).href)}`,
       '',
@@ -48,6 +50,9 @@ async function stage() {
 }
 
 async function findDshTools() {
+  // DSH_TOOLS_STUB=1 forces the CI path even on a machine that has the host
+  // packages installed (keeps local and CI behaviour comparable).
+  if (process.env.DSH_TOOLS_STUB === '1') return ''
   const candidates = [
     process.env.DSH_TOOLS_ENTRY,
     '../../node_modules/@deepseek-ai/dsh-tools/lib/index.js',
@@ -332,7 +337,8 @@ const toolDry = await tools.get('experience_promote').execute({ category: '06-sh
 check('tool dryRun returns valid output', toolDry && toolDry.ok === true && toolDry.dryRun === true, toolDry)
 let rejected = false
 try { await tools.get('experience_promote').execute({ category: '06-shell-tooling' }) } catch (err) { rejected = /invalid arguments/.test(String(err && err.message)) }
-check('tool rejects missing title', rejected)
+if (HAS_REAL_TOOLS) check('tool rejects missing title', rejected)
+else console.log('  skip tool rejects missing title (stub has no arg validation)')
 
 console.log('== first-run seeding ==')
 const seedRoot = resolve('test/.tmp-seed')
