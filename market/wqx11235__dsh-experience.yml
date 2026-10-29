@@ -1,0 +1,11 @@
+# Ready-to-submit catalog entry for awesome-dsh-plugin.
+# Copy this file to that repo as data/plugins/wqx11235__dsh-experience.yml
+# (one file = the whole submission; its READMEs are generated, never edit them).
+# Requirement check: repo public ✅, dsh.bundle manifest ✅, dsh-plugin topic ⏳,
+# repo age ≥ 1 day ⏳ (created 2026-10-29, submit on/after 2026-10-30).
+url: https://github.com/wqx11235/dsh-experience
+name: wqx11235/dsh-experience
+category: memory
+description:
+  en: 'Local-first experience library for DeepSeek Harness: indexed markdown knowledge with error-signature retrieval, failure capture, gap-to-entry closure, and a sidebar panel. Ships a sanitized starter library. No network access.'
+  zh: '本地优先的经验库：给 DeepSeek Harness 的索引化 markdown 知识，支持错误签名检索、失败采集、缺口→条目闭环与侧边栏面板；自带脱敏起步库，不联网。'
