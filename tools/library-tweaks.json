@@ -1,0 +1,22 @@
+{
+  "_note": "Per-file post-processing applied after the global redactions. Each rule is a literal find/replace; keep them minimal and review `git diff library/` after every build.",
+  "rules": {
+    "00-global/03-file-tool-discipline.md": [],
+    "01-plugin-development/01-choose-dynamic-vs-resident.md": [],
+    "01-plugin-development/03-client-bundle-format.md": [],
+    "01-plugin-development/04-loader-resolution-pitfall.md": [],
+    "01-plugin-development/08-tool-output-lossless-json.md": [],
+    "01-plugin-development/09-experience-retrieval-and-collection.md": [
+      { "find": "kind: 'plugin', plugin: 'dsh-experience'", "replace": "kind: 'dsh-experience'" },
+      { "find": "`source.kind='plugin'` 才会被当作插件通知而不是用户消息。", "replace": "`source.kind` 必须是插件自有值（如 `'dsh-experience'`）——通用 `'plugin'` 会被 v4 会话消息契约拒收。" }
+    ],
+    "02-configuration/01-profile-patch-layer.md": [],
+    "03-filesystem-and-sandbox/05-escalation-justification-in-chinese.md": [],
+    "04-diagnosis-methodology/16-runtime-upgrade-plugin-incompat-critical.md": [],
+    "04-diagnosis-methodology/17-cdp-headless-frontend-smoke.md": [
+      { "find": "$edge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'", "replace": "$edge = '<edge-exe>'" }
+    ],
+    "06-shell-tooling/05-cmd-batch-non-ascii-critical.md": [],
+    "07-web-frontend/01-hidden-class-vs-inline-style.md": []
+  }
+}

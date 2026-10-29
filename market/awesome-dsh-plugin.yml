@@ -1,0 +1,11 @@
+# Template for the awesome-dsh-plugin submission.
+# Copy to the catalog repo as data/plugins/<owner>__<repo>.yml (one file = the
+# whole submission; the READMEs there are generated, never edit them by hand).
+url: https://github.com/<owner>/dsh-experience
+name: <owner>/dsh-experience
+category: memory
+description:
+  en: 'Local-first experience library for DeepSeek Harness: indexed markdown knowledge with error-signature retrieval, failure capture, gap-to-entry closure, and a sidebar panel. Ships a sanitized starter library. No network access.'
+  zh: '本地优先的经验库：给 DeepSeek Harness 的索引化 markdown 知识，支持错误签名检索、失败采集、缺口→条目闭环与侧边栏面板；自带脱敏起步库，不联网。'
+# Optional: GitHub-hosted raster tile (180x180). Falls back to the owner avatar.
+# icon: https://raw.githubusercontent.com/<owner>/dsh-experience/main/assets/icon-180.png

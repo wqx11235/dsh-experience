@@ -1,0 +1,13 @@
+# dsh-experience bundle patch.
+# Mounts the resident plugin row only. The library root is resolved by the plugin
+# itself — config.experienceRoot > DSH_EXPERIENCE_ROOT > ~/.dsh/experience — and a
+# starter library is copied there on first run. To pin a different root, override
+# this row by id in your profile patch instead of editing the package:
+#
+#   - id: experience
+#     config:
+#       experienceRoot: '/absolute/path/to/experience'
+#       seed: false
+- insert:
+    - id: experience
+      name: 'dsh-experience'

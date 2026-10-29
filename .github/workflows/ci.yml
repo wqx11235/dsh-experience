@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: host-free integration tests
+        run: node test/host-harness.mjs
+      - name: public library link check
+        run: node test/linkcheck.mjs library
+      - name: public library privacy scan
+        run: node tools/privacy-rules.mjs library

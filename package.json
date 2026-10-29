@@ -1,0 +1,56 @@
+{
+  "name": "dsh-experience",
+  "version": "0.1.0",
+  "description": "Self-learning experience library for DeepSeek Harness: indexed markdown knowledge with error-signature routing, failure capture, gap-to-entry closure, and a sidebar panel. Ships a starter library.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "experience",
+    "memory",
+    "knowledge-base"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wqx11235/dsh-experience.git"
+  },
+  "homepage": "https://github.com/wqx11235/dsh-experience#readme",
+  "bugs": {
+    "url": "https://github.com/wqx11235/dsh-experience/issues"
+  },
+  "engines": {
+    "dsh": ">=0.1.7-rc.2"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "client.js",
+    "cordis.patch.yml",
+    "library/",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./lib/promote.js": "./lib/promote.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node test/run-all.mjs",
+    "build:library": "node tools/build-library.mjs",
+    "privacy": "node tools/privacy-rules.mjs library"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

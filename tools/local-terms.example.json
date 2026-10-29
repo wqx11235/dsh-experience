@@ -1,0 +1,10 @@
+{
+  "_note": "Copy to private-terms.local.json (gitignored) and fill in the paths/words that exist only on your machine. Patterns are regular expressions.",
+  "redactions": [
+    { "label": "workspace", "pattern": "[A-Za-z]:[\\\\/]my-workspace", "flags": "gi", "replace": "<workspace>" },
+    { "label": "local-word", "find": "本机", "replace": "该环境" }
+  ],
+  "denylist": [
+    { "rule": "workspace-name", "pattern": "my-workspace", "flags": "i" }
+  ]
+}

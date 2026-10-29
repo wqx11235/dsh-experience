@@ -1,0 +1,15 @@
+node_modules/
+library/.tmp-*
+test/.stage/
+test/.tmp-*
+*.tgz
+*.bak
+*.bak-*
+*.local.json
+*.local.md
+package.json.orig
+.npm-cache/
+.npm-logs/
+.DS_Store
+Thumbs.db
+npm-debug.log*
