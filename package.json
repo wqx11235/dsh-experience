@@ -25,6 +25,9 @@
   "engines": {
     "dsh": ">=0.1.7-rc.2"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "index.js",
     "lib/",
@@ -46,6 +49,9 @@
     "privacy": "node tools/privacy-rules.mjs library"
   },
   "dsh": {
+    "engines": {
+      "dsh": ">=0.1.7-rc.2"
+    },
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
