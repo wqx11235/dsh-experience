@@ -1,7 +1,7 @@
 {
   "name": "dsh-experience",
-  "version": "0.1.0",
-  "description": "Self-learning experience library for DeepSeek Harness: indexed markdown knowledge with error-signature routing, failure capture, gap-to-entry closure, and a sidebar panel. Ships a starter library.",
+  "version": "0.1.1",
+  "description": "Self-learning experience library for DeepSeek Harness: error-signature retrieval, pre-step recall hints, failure-to-fix drafts, gap-to-entry closure, and a sidebar panel. No model calls, no network.",
   "type": "module",
   "main": "index.js",
   "license": "MIT",
