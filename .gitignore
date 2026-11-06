@@ -8,6 +8,7 @@ test/.tmp-*
 *.local.json
 *.local.md
 package.json.orig
+research/readmes/
 .npm-cache/
 .npm-logs/
 .DS_Store

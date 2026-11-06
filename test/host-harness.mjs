@@ -17,6 +17,7 @@ const TMP = resolve('test/.tmp-lib')
 
 let failures = 0
 let HAS_REAL_TOOLS = false
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 function check(name, cond, detail) {
   if (cond) { console.log(`  ok   ${name}`) } else { failures += 1; console.log(`  FAIL ${name}${detail ? ' :: ' + JSON.stringify(detail).slice(0, 400) : ''}`) }
 }
@@ -214,7 +215,7 @@ async function seed() {
 await stage()
 await seed()
 const mod = await import(pathToFileURL(join(STAGE, 'index.js')).href)
-const { ctx, tools, routes } = makeCtx()
+const { ctx, tools, routes, handlers } = makeCtx()
 await mod.default.apply(ctx, { experienceRoot: TMP })
 
 console.log('== routes/tools ==')
@@ -339,6 +340,34 @@ let rejected = false
 try { await tools.get('experience_promote').execute({ category: '06-shell-tooling' }) } catch (err) { rejected = /invalid arguments/.test(String(err && err.message)) }
 if (HAS_REAL_TOOLS) check('tool rejects missing title', rejected)
 else console.log('  skip tool rejects missing title (stub has no arg validation)')
+
+console.log('== pre-step recall hint ==')
+check('pre-step handler registered', typeof handlers['agent/pre-step'] === 'function')
+const preStep = (payload) => handlers['agent/pre-step'](payload, async () => ({ kind: 'enter', messages: [] }))
+const prePayload = (turn, messages, sid = 's1') => ({ agent: { session: { id: sid } }, messages, step: 1, turn })
+const userMsg = (text, source) => ({ role: 'user', content: [{ type: 'text', text }], ...(source ? { source } : {}) })
+const p1 = await preStep(prePayload(1, [userMsg('fetch failed econnrefused')]))
+check('hint injected for a matching turn', p1.messages.length === 1 && /经验库/.test(p1.messages[0].content[0].text), p1)
+const p2 = await preStep(prePayload(1, [userMsg('fetch failed econnrefused')]))
+check('same turn does not hint twice', p2.messages.length === 0, p2)
+const p3 = await preStep(prePayload(2, [userMsg('fetch failed econnrefused')]))
+check('same entry not hinted twice in a session', p3.messages.length === 0, p3)
+const p4 = await preStep(prePayload(3, [userMsg('fetch failed', { kind: 'dsh-experience' })]))
+check('plugin-injected text does not trigger recall', p4.messages.length === 0, p4)
+const p5 = await preStep(prePayload(1, [userMsg('fetch failed econnrefused')], 's2'))
+check('a new session starts fresh', p5.messages.length === 1, p5)
+
+console.log('== solved draft (failure -> success) ==')
+const err = 'tool web_fetch failed: fetch failed ECONNRESET'
+handlers['tools/result']({ name: 'web_fetch', arguments: { url: 'https://x' } }, { isError: true, error: { message: err } })
+await sleep(60)
+handlers['tools/result']({ name: 'web_fetch', arguments: { url: 'https://x', proxy: 'http://127.0.0.1:7897' } }, { isError: false, value: { ok: true } })
+await sleep(500)
+const draftFiles = await readdir(join(TMP, '.drafts')).catch(() => [])
+check('solved draft created', draftFiles.some(f => f.startsWith('solved-')), draftFiles)
+const solvedFile = draftFiles.find(f => f.startsWith('solved-'))
+const solvedText = solvedFile ? await readFile(join(TMP, '.drafts', solvedFile), 'utf8') : ''
+check('solved draft carries error and fix', /ECONNRESET/.test(solvedText) && /7897/.test(solvedText), solvedText.slice(0, 400))
 
 console.log('== first-run seeding ==')
 const seedRoot = resolve('test/.tmp-seed')

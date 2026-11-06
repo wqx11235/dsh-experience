@@ -345,6 +345,7 @@ export default {
       meta.promoted ||= {}
       meta.signatureFreq ||= {}
       meta.drafted ||= {}
+      meta.solvedDrafted ||= {}
       meta.resolveMap ||= {}
       meta.missed ||= []
       meta.fixes ||= []
@@ -620,6 +621,13 @@ export default {
         if (meta.fixes.length > 50) meta.fixes = meta.fixes.slice(-50)
         const item = meta.inbox.find(i => i.id === pend.id)
         if (item) { item.fix = fix; item.fixTs = Date.now() }
+        // P0-2: a failure followed by a success inside the same window is a solved
+        // problem, not just a fix sample. Turn it into a promotable draft so the
+        // "what actually fixed it" half is not buried in meta.fixes forever.
+        if (item && (item.cls || 'knowledge') === 'knowledge' && !(meta.solvedDrafted || {})[item.id]) {
+          item.solved = Date.now()
+          draftSolved(item, pend.error, fix).catch(() => {})
+        }
         saveMeta()
       }
     })
@@ -713,6 +721,38 @@ export default {
       try {
         await mkdir(DRAFTS_DIR, { recursive: true })
         await writeFile(join(DRAFTS_DIR, `auto-${sigId}.md`), body)
+      } catch { /* ignore */ }
+    }
+
+    // P0-2: draft from a failure that was followed by a successful call of the
+    // same tool. The symptom is the raw error; the fix is the successful
+    // arguments. This is the half a pure error log never captures.
+    async function draftSolved(item, errorText, fixText) {
+      meta.solvedDrafted ||= {}
+      if (meta.solvedDrafted[item.id]) return
+      meta.solvedDrafted[item.id] = Date.now()
+      saveMeta()
+      const tool = String(item.tool || '?')
+      const sig = signatureWeight(String(errorText || '').toLowerCase()).id
+      const keywords = [sig, tool, ...String(item.query || '').split(/\s+/).filter(Boolean).slice(0, 3)].filter(Boolean)
+      const symptomLines = [
+        `- 工具：\`${tool}\``,
+        `- 报错原文：${String(errorText || '').slice(0, 300)}`,
+      ]
+      if (item.query) symptomLines.push(`- 当时查询：\`${item.query}\``)
+      if (item.repeat > 1) symptomLines.push(`- 复发：${item.repeat} 次`)
+      const body = buildEntryMarkdown({
+        title: `待定：${tool} 报错后是怎么修好的（待认领）`,
+        source: '经验库自动采集（失败 → 修复）→ 待确认',
+        summary: '由经验库在「同工具先失败、后成功」时自动起草：症状是报错原文，避坑是成功那次调用的参数。',
+        symptom: symptomLines.join('\n'),
+        cause: '',
+        fix: fixText ? '```\n' + fixText + '\n```' : '',
+        keywords,
+      })
+      try {
+        await mkdir(DRAFTS_DIR, { recursive: true })
+        await writeFile(join(DRAFTS_DIR, `solved-${item.id}.md`), body)
       } catch { /* ignore */ }
     }
 
@@ -1578,6 +1618,69 @@ export default {
         async execute(args) { return promote(args) },
       })))
     }
+
+    // ── P0-1: pre-step recall hint ──
+    // Failure-time surfacing only fires after something already broke. This hook
+    // runs on the first step of a turn, looks the user's own words up, and adds a
+    // short pointer to related entries when the match is strong — so the agent can
+    // read before acting instead of rediscovering. Silence is the common case:
+    // threshold + once per turn + each entry hinted at most once per session.
+    const PRE_STEP_MIN = Number(process.env.DSH_EXPERIENCE_PRE_MIN || 40)
+    const preStepState = new Map()
+    const sessionKeyOf = (agent) => (agent && agent.session && agent.session.id) || (agent && agent.id) || 'default'
+    function messageTextOf(m) {
+      if (!m) return ''
+      if (typeof m.text === 'string') return m.text
+      if (!Array.isArray(m.content)) return ''
+      return m.content.filter(b => b && b.type === 'text').map(b => b.text || '').join(' ')
+    }
+    // Only user-authored input may build the query: plugin notices, generated
+    // context and tool results must not trigger recall (they would echo forever).
+    function userAuthoredText(messages) {
+      const out = []
+      for (const m of Array.isArray(messages) ? messages : []) {
+        if (!m || m.role !== 'user') continue
+        const kind = m.source && m.source.kind
+        if (kind && kind !== 'user') continue
+        const text = messageTextOf(m).trim()
+        if (text) out.push(text)
+      }
+      return out.join('\n').slice(0, 500)
+    }
+    ctx.on('agent/pre-step', async (payload, next) => {
+      const decision = await next()
+      try {
+        if (!decision || decision.kind !== 'enter' || !payload) return decision
+        if (payload.step !== 1) return decision
+        if (payload.signal && payload.signal.aborted) return decision
+        const query = userAuthoredText(payload.messages)
+        if (query.length < 6) return decision
+        const r = search(query, 3, true)
+        if ((r.topScore || 0) < PRE_STEP_MIN || !r.hits.length) return decision
+        const key = sessionKeyOf(payload.agent)
+        const st = preStepState.get(key) || { turn: -1, rels: new Set() }
+        if (st.turn === payload.turn) return decision
+        const fresh = r.hits.filter(h => !st.rels.has(h.rel))
+        if (!fresh.length) return decision
+        st.turn = payload.turn
+        for (const h of fresh.slice(0, 2)) st.rels.add(h.rel)
+        preStepState.set(key, st)
+        const lines = fresh.slice(0, 2).map(h => `- ${h.title}（${h.rel}）`)
+        const body = `【经验库 · 可能相关】\n${lines.join('\n')}\n需要时用 experience_read 读全文；不相关请忽略。`
+        const notice = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: [{ type: 'text', text: body }],
+          source: { kind: 'dsh-experience', form: 'notice', summary: '经验库提示' },
+        }
+        return { ...decision, messages: [...(Array.isArray(decision.messages) ? decision.messages : []), notice] }
+      } catch {
+        return decision
+      }
+    })
+    ctx.on('agent/disposed', ({ agent }) => {
+      preStepState.delete(sessionKeyOf(agent))
+    })
 
     // ── ① proactive surfacing ──
     // When a tool fails, look the error up and inject the matching entry's

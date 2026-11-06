@@ -7,6 +7,7 @@ const steps = [
   ['host-harness', ['test/host-harness.mjs']],
   ['linkcheck', ['test/linkcheck.mjs', 'library']],
   ['privacy', ['tools/privacy-rules.mjs', 'library']],
+  ['eval-retrieval', ['tools/eval-retrieval.mjs', 'library']],
 ]
 
 let failed = 0

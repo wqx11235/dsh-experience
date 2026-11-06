@@ -74,6 +74,20 @@ tools/result ──失败──> inbox（候选）+ fixes（修复证据）
 - 工具返回值里**不要出现 `undefined` 属性**：DSH 视为 non-lossless JSON，整条结果报错。
 - host 级插件改动需要**重启宿主**；面板改动刷新页面即可。
 
+## 8.5 开口前召回（`agent/pre-step`）
+
+- 只在 `step === 1` 跑；查询**只由用户真实输入**拼成（`role === 'user'` 且 `source.kind` 缺省或为 `user`），插件注入与工具结果一律排除，否则会自我循环。
+- `search(query, 3, true)` 走 quiet 模式（不动统计/热度/草稿）；`topScore < PRE_STEP_MIN`（默认 40，可用 `DSH_EXPERIENCE_PRE_MIN` 调）就沉默。
+- 同一 `turn` 只提示一次；同一会话同一 `rel` 只提示一次；每次最多 2 条。
+- 注入的是带 `source.kind = 'dsh-experience'` 的 **user 消息**，不是 system prompt（带 `complete:true` 的 preset 会覆盖 system prompt，导致静默失效）。
+
+## 8.6 失败 → 修复起草（`draftSolved`）
+
+- 同工具在 `FIX_WINDOW_MS` 内先失败后成功时，除了回填 `item.fix`，再为 **knowledge 类**候选自动写 `.drafts/solved-<id>.md`：症状是报错原文，避坑是成功调用的参数。
+- `usage` / `config` 类失败不生成草稿（操作纪律不是知识）。
+- 去重：`meta.solvedDrafted[id]` 保证每个候选只起一次稿。
+
+
 ## 库根与首次播种
 
 - 优先级：`config.experienceRoot` → `DSH_EXPERIENCE_ROOT` → `~/.dsh/experience`。

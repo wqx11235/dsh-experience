@@ -21,3 +21,5 @@ jobs:
         run: node test/linkcheck.mjs library
       - name: public library privacy scan
         run: node tools/privacy-rules.mjs library
+      - name: retrieval benchmark (informational)
+        run: node tools/eval-retrieval.mjs library
