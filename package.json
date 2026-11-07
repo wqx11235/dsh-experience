@@ -1,6 +1,6 @@
 {
   "name": "dsh-experience",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Self-learning experience library for DeepSeek Harness: error-signature retrieval, pre-step recall hints, failure-to-fix drafts, gap-to-entry closure, and a sidebar panel. No model calls, no network.",
   "type": "module",
   "main": "index.js",

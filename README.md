@@ -70,7 +70,7 @@ dsh plugin --profile web add dsh-experience
 
 首次启动会把包内 `library/` 复制到库根；已有库不会被覆盖。
 
-**兼容性**：`engines.dsh >= 0.1.7-rc.2`，不设上限（新版本优先）。已在 0.1.7-rc.2 实测；0.1.7 以上预计可直接用。
+**兼容性**：`engines.dsh >= 0.1.7-rc.2`，不设上限（新版本优先）。已在 **0.1.7-rc.2** 与 **0.2.2-rc.1** 实测：工具注册、`/experience/*` 路由、侧栏面板、`agent/pre-step` 召回均正常，前端 0 运行时异常。
 
 ## 工具
 
