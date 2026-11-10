@@ -96,6 +96,36 @@ window.__ModuleLoader__.load({
       chead: { padding: '6px 10px 0', flex: '0 0 auto' },
       ctitle: { fontSize: 15, fontWeight: 600, lineHeight: 1.35 },
       cpath: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginTop: 3 },
+      // Full-page layout (main slot): a left navigation rail and a reading pane,
+      // instead of the old 400px overlay drawer.
+      page: {
+        height: '100%', width: '100%', display: 'flex', flexDirection: 'column',
+        background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)',
+        fontFamily: 'var(--dsw-font-family, system-ui, sans-serif)', overflow: 'hidden',
+      },
+      pageHead: {
+        display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px 10px',
+        borderBottom: '1px solid var(--dsw-alias-border-l1)', flex: '0 0 auto',
+      },
+      pageTitle: { fontSize: 17, fontWeight: 650 },
+      pageSearch: { padding: '10px 22px', display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' },
+      pageBody: { flex: 1, minHeight: 0, display: 'flex' },
+      pageNav: {
+        width: 330, flex: '0 0 330px', borderRight: '1px solid var(--dsw-alias-border-l1)',
+        overflowY: 'auto', padding: '4px 6px 16px', boxSizing: 'border-box',
+      },
+      pageMain: { flex: 1, minWidth: 0, overflowY: 'auto', padding: '8px 26px 48px', boxSizing: 'border-box' },
+      pageInner: { maxWidth: 880, margin: '0 auto' },
+      statGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, margin: '10px 0 18px' },
+      statCard: {
+        padding: '12px 14px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-interactive-bg-hover)',
+      },
+      statNum: { fontSize: 22, fontWeight: 650, lineHeight: 1.1 },
+      statLabel: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginTop: 4 },
+      hero: { padding: '18px 0 6px' },
+      heroTitle: { fontSize: 22, fontWeight: 650 },
+      heroSub: { fontSize: 13, color: 'var(--dsw-alias-label-secondary)', marginTop: 6, lineHeight: 1.6 },
     }
 
     // Pill badge: minimal status chip (better-sidebar tabBadge recipe:
@@ -283,6 +313,7 @@ window.__ModuleLoader__.load({
 
     function ExperiencePanel(props) {
       var wide = props.wide
+      var mode = props.mode || 'pane'
       var openState = React.useState(false)
       var open = openState[0]
       var setOpen = openState[1]
@@ -319,6 +350,11 @@ window.__ModuleLoader__.load({
       var inboxCountState = React.useState(0)
       var inboxCount = inboxCountState[0]
       var setInboxCount = inboxCountState[1]
+
+      // The page is mounted by the main slot; the drawer only loads on open.
+      React.useEffect(function () {
+        if (mode === 'page') openPanel()
+      }, [])
 
 
       function loadList() {
@@ -533,7 +569,7 @@ window.__ModuleLoader__.load({
         return nodes
       }
 
-      function homeView() {
+      function homeView(navOnly) {
         var nodes = []
         var libs = (data && data.libraries && data.libraries.length) ? data.libraries : null
         if (libs) {
@@ -567,7 +603,7 @@ window.__ModuleLoader__.load({
             ))
           })
         }
-        gapsView().forEach(function (n) { nodes.push(n) })
+        if (!navOnly) gapsView().forEach(function (n) { nodes.push(n) })
         // 长尾索引不上首页（用户要求）：条目在各库内点进去即可见，统计仍在 /experience/stats。
         if (!libs && data && data.categories.length) {
           nodes.push(React.createElement('div', { key: 'c-t', style: s.secTitle }, '按主题浏览'))
@@ -598,6 +634,61 @@ window.__ModuleLoader__.load({
         }
         if (!data) nodes.push(React.createElement('div', { key: 'loading', style: { padding: 12, fontSize: 13, color: 'var(--dsw-alias-label-secondary)' } }, '加载中…'))
         return nodes
+      }
+
+      // One source of truth for the "needs attention" counters, so the header and
+      // the overview cards can never disagree.
+      function gapSummary() {
+        var out = { gaps: 0, drafts: 0, missed: 0 }
+        if (gaps) {
+          out.gaps = (gaps.signatures || []).filter(function (g) { return g.gap }).length
+          out.drafts = (gaps.drafts || []).filter(function (d) { return d.promotable }).length
+          out.missed = (gaps.missed || []).length
+        }
+        return out
+      }
+
+      // Page mode: right side shows the selected thing, or a calm overview.
+      function overviewView() {
+        var libs = (data && data.libraries) ? data.libraries : []
+        var total = 0
+        libs.forEach(function (lb) { total += (lb.count || 0) })
+        var g = gapSummary()
+        var gapsN = g.gaps
+        var draftsN = g.drafts
+        var missN = g.missed
+        function stat(num, label) {
+          return React.createElement('div', { key: 'st' + label, style: s.statCard },
+            React.createElement('div', { style: s.statNum }, String(num)),
+            React.createElement('div', { style: s.statLabel }, label),
+          )
+        }
+        return [
+          React.createElement('div', { key: 'hero', style: s.hero },
+            React.createElement('div', { style: s.heroTitle }, '经验库'),
+            React.createElement('div', { style: s.heroSub }, '本地优先的踩坑与做法库：报错时按签名推送，开口前先给一条相关提示；没命中的问题会进缺口，起稿后由你认领入库。'),
+          ),
+          React.createElement('div', { key: 'stats', style: s.statGrid },
+            stat(total, '条目'),
+            stat(libs.length || 0, '库'),
+            stat(gapsN, '待补写缺口'),
+            stat(draftsN, '待认领草稿'),
+            stat(inboxCount, '待确认候选'),
+            stat(missN, '未命中查询'),
+          ),
+          React.createElement('div', { key: 'tip', style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 } },
+            '左侧选择库或主题；搜索框支持粘贴报错原文。',
+          ),
+        ]
+      }
+
+      function detailView() {
+        if (inbox) return inboxView()
+        if (content) return contentView()
+        if (hits !== null) return hitsView()
+        if (activeCat) return catView(activeCat)
+        if (activeLib) return libView(activeLib)
+        return overviewView()
       }
 
       // 库视图：一个库下的所有"技术主题"目录。
@@ -772,8 +863,53 @@ window.__ModuleLoader__.load({
         return nodes
       }
 
-      var gapCount = 0
-      if (gaps && gaps.signatures) for (var gi = 0; gi < gaps.signatures.length; gi++) if (gaps.signatures[gi].gap) gapCount++
+      var gsum = gapSummary()
+      var gapCount = gsum.gaps + gsum.drafts
+
+      // ── page render (main slot) ──
+      if (mode === 'page') {
+        return React.createElement('div', { style: s.page },
+          React.createElement('div', { style: s.pageHead },
+            React.createElement('span', { style: s.pageTitle }, '经验库'),
+            React.createElement('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, '本地优先 · 错误签名检索 · 开口前召回'),
+            React.createElement('div', { style: { flex: 1 } }),
+            React.createElement('button', {
+              className: 'dsh-exp-iconbtn', title: '库的缺口 / 建议补写',
+              onClick: function () { setInbox(null); setContent(null); setHits(null); setDir(null) }, style: s.iconBtn,
+            }, '待办' + (gapCount > 0 ? ' ' + gapCount : '')),
+            React.createElement('button', { className: 'dsh-exp-iconbtn', title: '待确认候选', onClick: openInbox, style: s.iconBtn }, '候选' + (inboxCount > 0 ? ' ' + inboxCount : '')),
+            React.createElement('button', {
+              className: 'dsh-exp-iconbtn', title: '归档：库内已有条目覆盖 + 用法/配置类候选（不删除，进 meta.inboxArchive）', onClick: pruneInbox, style: s.iconBtn,
+            }, '归档'),
+            React.createElement('button', { className: 'dsh-exp-iconbtn', title: '刷新索引', onClick: refresh, style: s.iconBtn }, '刷新'),
+          ),
+          data && data.warnings && data.warnings.length > 0 && React.createElement('div', {
+            style: {
+              padding: '5px 22px', fontSize: 11, flex: '0 0 auto',
+              borderBottom: '1px solid var(--dsw-alias-border-l1)',
+              color: 'var(--dsw-alias-state-error-primary)',
+              background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent)',
+            },
+          }, '索引一致性：' + data.warnings.join('；')),
+          React.createElement('div', { style: s.pageSearch },
+            React.createElement('input', {
+              className: 'dsh-exp-input', value: q,
+              onChange: function (e) { setQ(e.target.value) },
+              onKeyDown: function (e) { if (e.key === 'Enter') doSearch() },
+              placeholder: '描述你的问题 / 粘贴报错原文', style: s.input,
+            }),
+            React.createElement('button', { className: 'dsh-exp-btn', onClick: function () { doSearch() }, style: s.btn }, '搜索'),
+            React.createElement('button', { className: 'dsh-exp-btn', onClick: reset, style: s.btn }, '重置'),
+          ),
+          err && React.createElement('div', { style: { padding: '4px 22px', fontSize: 12, flex: '0 0 auto', color: 'var(--dsw-alias-label-secondary)' } }, err),
+            React.createElement('div', { style: s.pageBody },
+              React.createElement('div', { style: s.pageNav, className: 'dsh-exp-list' }, homeView(true)),
+            React.createElement('div', { style: s.pageMain, className: 'dsh-exp-list' },
+              React.createElement('div', { style: s.pageInner }, breadcrumb(), detailView()),
+            ),
+          ),
+        )
+      }
 
       // ── root render ──
       return React.createElement('div', { style: { display: 'inline-flex' } },
@@ -862,11 +998,21 @@ window.__ModuleLoader__.load({
       ctx.effect ? ctx.effect(injectStyles) : injectStyles()
       var slots = ctx.slots || (typeof ctx.get === 'function' ? ctx.get('slots') : undefined)
       if (!slots) return
-      slots.inject('sidebar.footer.action', function () {
+      // Entry lives in the left sidebar's panel list (top group), not above the
+      // account row: one `main` page keyed by the same id the list row selects.
+      slots.inject('main', function () {
         return slots.register(
-          { name: 'sidebar.footer.action', id: 'experience', order: 200, label: '经验库' },
-          function (ownerProps) {
-            return React.createElement(ExperiencePanel, { ctx: ctx, wide: ownerProps && ownerProps.wide })
+          { name: 'main', key: 'experience' },
+          function () {
+            return React.createElement(ExperiencePanel, { ctx: ctx, mode: 'page' })
+          },
+        )
+      })
+      slots.inject('sidebar.panellist', function () {
+        return slots.register(
+          { name: 'sidebar.panellist', id: 'experience', order: 12, label: '经验库' },
+          function () {
+            return BookIcon(18)
           },
         )
       })

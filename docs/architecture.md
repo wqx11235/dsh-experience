@@ -65,7 +65,8 @@ tools/result ──失败──> inbox（候选）+ fixes（修复证据）
 ## 7. 面板
 
 客户端 bundle 是**经典脚本 factory 形式**（`window.__ModuleLoader__.load`），不是 ESM；写成 ESM 会报 `Cannot use import statement outside a module` 并连带 web boot 失败。
-面板只做五件事：按库浏览、结构化正文（分区卡片 + 避坑复制）、检索、缺口/待认领、候选池。样式只用 `--dsw-alias-*` 主题变量。
+面板挂在**左侧插件栏**（`sidebar.panellist` 一行）并占用 `main` 整页：左栏 330px 做库/主题导航，右栏是概览、正文、检索命中与候选池。
+面板做五件事：按库/主题导航、结构化正文（分区卡片 + 避坑复制）、检索、缺口/待认领、候选池。样式只用 `--dsw-alias-*` 主题变量。
 
 ## 8. 持久化与迁移
 
