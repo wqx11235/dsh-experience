@@ -32,7 +32,7 @@ const yaml = raw.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')
 
 const up = await api('GET', `/repos/${UP}/git/ref/heads/main`)
 if (up.status !== 200) { console.error('upstream read failed', up.status); process.exit(1) }
-const baseSha = up.json.object.sha
+const upstreamSha = up.json.object.sha
 
 // fork needs a moment after the first PR; wait until it is readable
 for (let i = 0; i < 20; i++) {
@@ -40,6 +40,20 @@ for (let i = 0; i < 20; i++) {
   if (f.status === 200) break
   await sleep(1500)
 }
+// The fork must actually contain upstream's commit before a branch can point
+// at it ("No commit found for the ref" otherwise). Sync, then use the fork's
+// own main sha.
+await api('POST', `/repos/${OWNER}/${REPO}/merge-upstream`, { branch: 'main' })
+let baseSha = upstreamSha
+for (let i = 0; i < 15; i++) {
+  const fm = await api('GET', `/repos/${OWNER}/${REPO}/git/ref/heads/main`)
+  if (fm.status === 200) {
+    baseSha = fm.json.object.sha
+    if (baseSha === upstreamSha) break
+  }
+  await sleep(1500)
+}
+console.log('base', baseSha.slice(0, 7), baseSha === upstreamSha ? '(in sync)' : '(fork main)')
 // Always start from the current upstream main: a branch left over from an
 // earlier submission would produce the same-file conflict the maintainer
 // warned about (GitHub then skips CI entirely).
