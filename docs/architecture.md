@@ -88,6 +88,22 @@ tools/result ──失败──> inbox（候选）+ fixes（修复证据）
 - `usage` / `config` 类失败不生成草稿（操作纪律不是知识）。
 - 去重：`meta.solvedDrafted[id]` 保证每个候选只起一次稿。
 
+## 8.7 队列收口（草稿不再只进不出）
+
+- `ageDrafts()`：`.drafts/*.md` 超过 `DSH_EXPERIENCE_DRAFT_TTL_DAYS`（默认 14 天）移入 `.drafts/archive/`，只归档不删除；`/experience/drafts` 读取时顺带执行。
+- `POST /experience/drafts/promote`：从草稿标题/症状/原因/避坑直接生成条目（走 `promote()` 的查重、README 同步、删草稿）。
+- `POST /experience/drafts/dismiss`：归档一份草稿。
+- 面板「待办」是真正的队列页：草稿（认领/归档）、缺口签名、未命中查询（提交候选/移除）同页。
+
+## 8.8 召回反馈、融合排序与 scope
+
+- `meta.pre[rel] = {push, read, lastPushTs, lastReadTs}`：pre-step 推送计数；`experience_read` 在推送后 6 小时内读回则 `read++`。
+- `preThreshold(rel)`：推送 ≥3 次且采纳率 <20% 的条目，阈值从 40 抬到 60；<50% 抬到 48。
+- 跨会话冷却：同一 `rel` 在 7 天内不再推送（`DSH_EXPERIENCE_PRE_COOLDOWN_H`）。
+- 强命中门槛：只有「已知签名 / severity critical / 词法分 ≥55」才推送，普通词重叠不推。
+- 融合：词法排序与整句 2-gram 相似度**始终**做 RRF 融合（不再只在零命中时兜底）。
+- scope：条目 front-matter 写 `scope: <name>`；`experience_search(..., scope)` 同 scope ×1.12、异 scope ×0.85。
+
 
 ## 库根与首次播种
 

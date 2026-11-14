@@ -40,6 +40,10 @@ for (let i = 0; i < 20; i++) {
   if (f.status === 200) break
   await sleep(1500)
 }
+// Always start from the current upstream main: a branch left over from an
+// earlier submission would produce the same-file conflict the maintainer
+// warned about (GitHub then skips CI entirely).
+await api('DELETE', `/repos/${OWNER}/${REPO}/git/refs/heads/${BRANCH}`)
 const ref = await api('POST', `/repos/${OWNER}/${REPO}/git/refs`, { ref: `refs/heads/${BRANCH}`, sha: baseSha })
 console.log('branch', ref.status === 422 ? 'exists' : 'created')
 

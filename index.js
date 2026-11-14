@@ -350,6 +350,8 @@ export default {
       meta.missed ||= []
       meta.fixes ||= []
       meta.suggest ||= {}
+      meta.pre ||= {}
+      meta.draftsArchived ||= 0
     }
     function saveMeta() {
       saving = saving.then(async () => {
@@ -666,6 +668,15 @@ export default {
     let lastSearch = null
     const RESOLVE_WINDOW_MS = 10 * 60 * 1000
     function noteRead(rel) {
+      // Hint feedback: a read shortly after a pre-step hint is the only honest
+      // signal that the hint was useful; it raises this entry's adoption rate.
+      try {
+        const st = meta.pre && meta.pre[rel]
+        if (st && Date.now() - (st.lastPushTs || 0) <= 6 * 3600 * 1000 && !(st.lastReadTs >= st.lastPushTs)) {
+          st.read = (st.read || 0) + 1
+          st.lastReadTs = Date.now()
+        }
+      } catch { /* ignore */ }
       if (!lastSearch || !lastSearch.sigId) return
       if (Date.now() - lastSearch.ts > RESOLVE_WINDOW_MS) return
       if (!lastSearch.rels.has(rel)) return
@@ -766,12 +777,13 @@ export default {
 
     // `quiet` runs a read-only lookup for the proactive surfacing hook: no
     // counters, no signature heat, no draft, no resolve context.
-    function search(rawQuery, limit, quiet) {
+    function search(rawQuery, limit, quiet, scope) {
       const q = String(rawQuery || '').trim().toLowerCase()
       if (!quiet) { lastQuery = q.slice(0, 200); meta.search.total++ }
       if (!q) { if (!quiet) saveMeta(); return { hits: [], suggest: false, topScore: 0 } }
       const sig = signatureWeight(q)
       const sigW = sig.weight
+      const wantScope = String(scope || '').trim().toLowerCase()
       let sigFreqBoost = 0
       let sigId = ''
       let sigCount = 0
@@ -836,6 +848,10 @@ export default {
         // ① severity: a critical entry outranks an equivalent non-critical hit.
         const sevBoost = SEVERITY_BOOST[(item.meta && item.meta.severity) || '']
         if (sevBoost) score += sevBoost
+        // Scope: entries pinned to another project are slightly discounted, a
+        // matching scope is lifted; unscoped entries stay neutral.
+        const itemScope = String((item.meta && item.meta.scope) || '').toLowerCase()
+        if (wantScope && itemScope) score = Math.round(score * (itemScope === wantScope ? 1.12 : 0.85))
         // B4: a file already read right after this signature was searched is a
         // known resolver — boost it when the same mistake recurs, net of misses.
         if (resolveFor && resolveFor[item.rel]) {
@@ -848,6 +864,36 @@ export default {
         scored.push({ item, score, firstIdx: bodyIdx })
       }
       scored.sort((a, b) => b.score - a.score || a.item.rel.localeCompare(b.item.rel))
+      // RRF-style fusion: always blend the character-bigram ranking, instead of
+      // only when the lexical pass returns zero hits. The old gate let one
+      // confident-but-wrong lexical hit suppress the better answer (the
+      // MisakaNet benchmark found exactly this failure mode).
+      const qgrams = bigramsOf(q)
+      if (qgrams.length) {
+        const qset = new Set(qgrams)
+        const fz = []
+        for (const item of index) {
+          const ig = new Set(bigramsOf((item.title + ' ' + item.text.slice(0, 600)).toLowerCase()))
+          let inter = 0
+          for (const g of qset) if (ig.has(g)) inter++
+          const union = qset.size + ig.size - inter
+          const j = union ? inter / union : 0
+          if (j >= 0.12) fz.push({ item, j })
+        }
+        fz.sort((a, b) => b.j - a.j || a.item.rel.localeCompare(b.item.rel))
+        const merged = new Map()
+        for (const s of scored) merged.set(s.item.rel, { item: s.item, score: s.score * 0.85, firstIdx: s.firstIdx })
+        fz.forEach((f, i) => {
+          const bonus = Math.round(40 / (i + 1))
+          const cur = merged.get(f.item.rel)
+          if (cur) cur.score += bonus
+          else merged.set(f.item.rel, { item: f.item, score: Math.round(f.j * 60) + bonus, firstIdx: -1 })
+        })
+        const fused = [...merged.values()].map(s => ({ ...s, score: Math.round(s.score) }))
+        fused.sort((a, b) => b.score - a.score || a.item.rel.localeCompare(b.item.rel))
+        scored.length = 0
+        scored.push(...fused)
+      }
       // A2: near-duplicate entries must not both sit at the top; the lower-ranked
       // twin of an overlap pair is down-weighted and the list re-sorted once.
       if (Object.keys(similarMap).length) {
@@ -955,7 +1001,34 @@ export default {
     // invisible forever. This is what makes 已起稿待认领 visible, and what
     // decides whether a draft still deserves a promotion (usage/config classes
     // are already answered by the discipline docs).
+    // Drafts expire instead of piling up: an auto-draft nobody promoted for two
+    // weeks is not actionable any more. Archived (never deleted) with a count.
+    const DRAFT_TTL_MS = Number(process.env.DSH_EXPERIENCE_DRAFT_TTL_DAYS || 14) * 864e5
+    async function ageDrafts() {
+      let names = []
+      try { names = (await readdir(DRAFTS_DIR)).filter(n => n.endsWith('.md')) } catch { return 0 }
+      if (!names.length) return 0
+      const cutoff = Date.now() - DRAFT_TTL_MS
+      const arch = join(DRAFTS_DIR, 'archive')
+      let moved = 0
+      for (const name of names) {
+        try {
+          const st = await stat(join(DRAFTS_DIR, name))
+          if (st.mtimeMs >= cutoff) continue
+          await mkdir(arch, { recursive: true })
+          await rename(join(DRAFTS_DIR, name), join(arch, name))
+          moved++
+        } catch { /* ignore */ }
+      }
+      if (moved) {
+        meta.draftsArchived = (meta.draftsArchived || 0) + moved
+        saveMeta()
+      }
+      return moved
+    }
+
     async function draftsData() {
+      await ageDrafts()
       let names = []
       try { names = (await readdir(DRAFTS_DIR)).filter(n => n.endsWith('.md')).sort() } catch { return [] }
       const out = []
@@ -1182,7 +1255,7 @@ export default {
         const url = new URL(req.url, 'http://internal')
         const q = (url.searchParams.get('q') || '').trim()
         if (!q) return json(res, { ok: false, error: 'missing q' }, 400)
-        json(res, { ok: true, ...search(q, url.searchParams.get('limit')) })
+        json(res, { ok: true, ...search(q, url.searchParams.get('limit'), false, url.searchParams.get('scope') || '') })
       }}))
       ctx.effect(() => webServer.register({ kind: 'exact', path: '/experience/read', handler: async (req, res) => {
         const url = new URL(req.url, 'http://internal')
@@ -1337,6 +1410,45 @@ export default {
       ctx.effect(() => webServer.register({ kind: 'exact', path: '/experience/drafts', handler: async (req, res) => {
         json(res, { ok: true, drafts: await draftsData() })
       }}))
+      // One-click queue actions: promote a draft straight from the panel, or
+      // archive it. Both keep the file for traceability.
+      ctx.effect(() => webServer.register({ kind: 'exact', path: '/experience/drafts/dismiss', handler: async (req, res) => {
+        if (req.method !== 'POST') return json(res, { ok: false, error: 'POST only' }, 405)
+        const b = await readBody(req).catch(() => '')
+        let d = {}
+        try { d = JSON.parse(b) } catch { /* ignore */ }
+        const file = String(d.file || '').trim().split('/').pop()
+        if (!file || !file.endsWith('.md')) return json(res, { ok: false, error: 'file required' }, 400)
+        try { await access(join(DRAFTS_DIR, file)) } catch { return json(res, { ok: false, error: 'draft not found' }, 404) }
+        const arch = join(DRAFTS_DIR, 'archive')
+        await mkdir(arch, { recursive: true })
+        await rename(join(DRAFTS_DIR, file), join(arch, file))
+        meta.draftsArchived = (meta.draftsArchived || 0) + 1
+        saveMeta()
+        json(res, { ok: true, file, archived: true })
+      }}))
+      ctx.effect(() => webServer.register({ kind: 'exact', path: '/experience/drafts/promote', handler: async (req, res) => {
+        if (req.method !== 'POST') return json(res, { ok: false, error: 'POST only' }, 405)
+        const b = await readBody(req).catch(() => '')
+        let d = {}
+        try { d = JSON.parse(b) } catch { /* ignore */ }
+        const file = String(d.file || '').trim().split('/').pop()
+        if (!file || !file.endsWith('.md')) return json(res, { ok: false, error: 'file required' }, 400)
+        let text = ''
+        try { text = await readFile(join(DRAFTS_DIR, file), 'utf8') } catch { return json(res, { ok: false, error: 'draft not found' }, 404) }
+        const title = ((text.match(/^#\s+(.+)$/m) || [, ''])[1] || '')
+          .replace(/^待定：/, '').replace(/（待认领）$/, '').trim()
+        const r = await promote({
+          category: String(d.category || '04-diagnosis-methodology'),
+          title,
+          draft: file,
+          symptom: sectionOf(text, '症状'),
+          cause: sectionOf(text, '原因'),
+          fix: sectionOf(text, '避坑'),
+          source: `经验库认领（${file}）`,
+        })
+        json(res, r, r.ok ? 200 : 400)
+      }}))
       ctx.effect(() => webServer.register({ kind: 'exact', path: '/experience/promote', handler: async (req, res) => {
         if (req.method !== 'POST') return json(res, { ok: false, error: 'POST only' }, 405)
         const b = await readBody(req).catch(() => '')
@@ -1439,6 +1551,7 @@ export default {
         parameters: {
           query: { type: 'string', required: true, description: '关键词或问题描述（支持空格分词与中文模糊）' },
           limit: { type: 'number', description: '返回条数，默认 5' },
+          scope: { type: 'string', description: '可选项目范围：条目 front-matter 写 scope: xxx 时，同 scope 加权、异 scope 降权' },
         },
         output: {
           schema: {
@@ -1454,7 +1567,7 @@ export default {
           },
         },
         async execute(args) {
-          const r = search(args.query, args.limit)
+          const r = search(args.query, args.limit, false, args.scope)
           return { ok: true, hits: r.hits, suggest: r.suggest }
         },
       })))
@@ -1626,7 +1739,24 @@ export default {
     // read before acting instead of rediscovering. Silence is the common case:
     // threshold + once per turn + each entry hinted at most once per session.
     const PRE_STEP_MIN = Number(process.env.DSH_EXPERIENCE_PRE_MIN || 40)
+    const PRE_COOLDOWN_MS = Number(process.env.DSH_EXPERIENCE_PRE_COOLDOWN_H || 168) * 3600 * 1000
     const preStepState = new Map()
+    function preStat(rel) {
+      meta.pre ||= {}
+      const st = meta.pre[rel] || (meta.pre[rel] = { push: 0, read: 0, lastPushTs: 0, lastReadTs: 0 })
+      return st
+    }
+    // An entry that keeps being pushed but never read earns its own higher bar,
+    // so one noisy rule cannot keep interrupting every session.
+    function preThreshold(rel) {
+      const st = preStat(rel)
+      if (st.push >= 3) {
+        const rate = (st.read || 0) / st.push
+        if (rate < 0.2) return PRE_STEP_MIN + 20
+        if (rate < 0.5) return PRE_STEP_MIN + 8
+      }
+      return PRE_STEP_MIN
+    }
     const sessionKeyOf = (agent) => (agent && agent.session && agent.session.id) || (agent && agent.id) || 'default'
     function messageTextOf(m) {
       if (!m) return ''
@@ -1656,16 +1786,37 @@ export default {
         const query = userAuthoredText(payload.messages)
         if (query.length < 6) return decision
         const r = search(query, 3, true)
-        if ((r.topScore || 0) < PRE_STEP_MIN || !r.hits.length) return decision
+        if (!r.hits.length) return decision
+        // Strong match only: a known signature, a critical entry, or a high
+        // lexical score. Plain word overlap ("file", "error") is not enough.
+        const sigId = signatureWeight(query.toLowerCase()).id
+        const topSev = (r.hits[0].itemMeta && r.hits[0].itemMeta.severity) || ''
+        if (!(sigId || topSev === 'critical' || (r.topScore || 0) >= 55)) return decision
         const key = sessionKeyOf(payload.agent)
         const st = preStepState.get(key) || { turn: -1, rels: new Set() }
         if (st.turn === payload.turn) return decision
-        const fresh = r.hits.filter(h => !st.rels.has(h.rel))
-        if (!fresh.length) return decision
+        const now = Date.now()
+        const picked = []
+        for (const h of r.hits) {
+          if (picked.length >= 2) break
+          if (st.rels.has(h.rel)) continue
+          const ps = preStat(h.rel)
+          // Cross-session cooldown: an entry hinted recently stays quiet.
+          if (now - (ps.lastPushTs || 0) < PRE_COOLDOWN_MS) continue
+          if ((r.topScore || 0) < preThreshold(h.rel)) continue
+          picked.push(h)
+        }
+        if (!picked.length) return decision
         st.turn = payload.turn
-        for (const h of fresh.slice(0, 2)) st.rels.add(h.rel)
+        for (const h of picked) {
+          st.rels.add(h.rel)
+          const ps = preStat(h.rel)
+          ps.push = (ps.push || 0) + 1
+          ps.lastPushTs = now
+        }
         preStepState.set(key, st)
-        const lines = fresh.slice(0, 2).map(h => `- ${h.title}（${h.rel}）`)
+        saveMeta()
+        const lines = picked.map(h => `- ${h.title}（${h.rel}）`)
         const body = `【经验库 · 可能相关】\n${lines.join('\n')}\n需要时用 experience_read 读全文；不相关请忽略。`
         const notice = {
           id: crypto.randomUUID(),

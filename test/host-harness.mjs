@@ -6,7 +6,7 @@
 //   node test/host-harness.mjs
 //
 // Exits non-zero if any check fails.
-import { mkdir, writeFile, readFile, rm, access, cp, readdir } from 'node:fs/promises'
+import { mkdir, writeFile, readFile, rm, access, cp, readdir, utimes } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -355,7 +355,13 @@ check('same entry not hinted twice in a session', p3.messages.length === 0, p3)
 const p4 = await preStep(prePayload(3, [userMsg('fetch failed', { kind: 'dsh-experience' })]))
 check('plugin-injected text does not trigger recall', p4.messages.length === 0, p4)
 const p5 = await preStep(prePayload(1, [userMsg('fetch failed econnrefused')], 's2'))
-check('a new session starts fresh', p5.messages.length === 1, p5)
+check('cross-session cooldown suppresses repeats', p5.messages.length === 0, p5)
+const hintedRel = (p1.messages[0].content[0].text.match(/（([^）]+)）/) || [])[1]
+if (hintedRel) {
+  await tools.get('experience_read').execute({ path: hintedRel })
+  const metaAfter = JSON.parse(await readFile(join(TMP, '.meta.json'), 'utf8'))
+  check('reading a hinted entry records adoption', metaAfter.pre && metaAfter.pre[hintedRel] && metaAfter.pre[hintedRel].read >= 1, metaAfter.pre && metaAfter.pre[hintedRel])
+} else check('hinted entry path is parseable', false, p1)
 
 console.log('== solved draft (failure -> success) ==')
 const err = 'tool web_fetch failed: fetch failed ECONNRESET'
@@ -368,6 +374,24 @@ check('solved draft created', draftFiles.some(f => f.startsWith('solved-')), dra
 const solvedFile = draftFiles.find(f => f.startsWith('solved-'))
 const solvedText = solvedFile ? await readFile(join(TMP, '.drafts', solvedFile), 'utf8') : ''
 check('solved draft carries error and fix', /ECONNRESET/.test(solvedText) && /7897/.test(solvedText), solvedText.slice(0, 400))
+
+console.log('== queue: aging + draft actions ==')
+const oldDraft = join(TMP, '.drafts', 'old-draft.md')
+await mkdir(join(TMP, '.drafts'), { recursive: true })
+await writeFile(oldDraft, '<!-- date: 2020-01-01; source: test -->\n# 待定：旧草稿（待认领）\n\n## 症状\n- 报错原文：`ERR_OLD_DRAFT`\n\n## 避坑\n- x\n')
+const oldTime = new Date(Date.now() - 40 * 864e5)
+await utimes(oldDraft, oldTime, oldTime)
+await callRoute(routes, '/experience/drafts')
+check('stale draft removed from queue', !(await access(oldDraft).then(() => true, () => false)))
+check('stale draft archived, not deleted', await access(join(TMP, '.drafts', 'archive', 'old-draft.md')).then(() => true, () => false))
+
+const promoDraft = join(TMP, '.drafts', 'promo-test.md')
+await writeFile(promoDraft, '# 待定：唯一测试错误 ZQX42（待认领）\n\n## 症状\n- 报错原文：`ZQX42_UNIQUE_TOKEN`\n\n## 原因\n- 测试用\n\n## 避坑\n- 测试用\n')
+const promoRes = await callRoute(routes, '/experience/drafts/promote', { method: 'POST', body: JSON.stringify({ file: 'promo-test.md', category: '04-diagnosis-methodology' }) })
+check('one-click promote creates an entry', promoRes.status === 200 && promoRes.body.ok === true && !!promoRes.body.rel, promoRes)
+check('promoted draft leaves the queue', !(await access(promoDraft).then(() => true, () => false)))
+const dismissRes = await callRoute(routes, '/experience/drafts/dismiss', { method: 'POST', body: JSON.stringify({ file: 'old-draft.md' }) })
+check('dismiss reports not-found for an already archived draft', dismissRes.status === 404 && dismissRes.body.ok === false, dismissRes)
 
 console.log('== first-run seeding ==')
 const seedRoot = resolve('test/.tmp-seed')

@@ -350,6 +350,9 @@ window.__ModuleLoader__.load({
       var inboxCountState = React.useState(0)
       var inboxCount = inboxCountState[0]
       var setInboxCount = inboxCountState[1]
+      var queueState = React.useState(false)
+      var queue = queueState[0]
+      var setQueue = queueState[1]
 
       // The page is mounted by the main slot; the drawer only loads on open.
       React.useEffect(function () {
@@ -369,6 +372,7 @@ window.__ModuleLoader__.load({
       }
       function openPanel() {
         setOpen(true)
+        setQueue(false)
         setContent(null)
         setDir(null)
         setLib(null)
@@ -409,6 +413,7 @@ window.__ModuleLoader__.load({
       }
 
       function openInbox() {
+        setQueue(false)
         fetch(INBOX_URL).then(function (r) { return r.json() }).then(function (d) {
           if (d && d.ok) { setInbox(d.inbox || []); setErr(null) } else setErr('读取候选失败')
         }).catch(function () { setErr('读取候选失败') })
@@ -433,6 +438,7 @@ window.__ModuleLoader__.load({
         var query = (queryOverride !== undefined ? queryOverride : q).trim()
         if (!query) { setHits(null); return }
         if (queryOverride !== undefined) setQ(query)
+        setQueue(false)
         setContent(null)
         setDir(null)
         setInbox(null)
@@ -443,7 +449,7 @@ window.__ModuleLoader__.load({
           })
           .catch(function () { setErr('搜索失败') })
       }
-      function reset() { setQ(''); setHits(null); setContent(null); setDir(null); setLib(null); setErr(null); setInbox(null) }
+      function reset() { setQ(''); setHits(null); setContent(null); setDir(null); setLib(null); setErr(null); setInbox(null); setQueue(false) }
 
       function submitCandidate(msg) {
         fetch(INBOX_URL, {
@@ -468,6 +474,7 @@ window.__ModuleLoader__.load({
 
       function jumpToDir(target) {
         setDir(target.replace(/\/+$/g, ''))
+        setQueue(false)
         setLib(null)
         setContent(null)
         setHits(null)
@@ -477,7 +484,7 @@ window.__ModuleLoader__.load({
         fetch(READ_URL + '?path=' + encodeURIComponent(rel))
           .then(function (r) { return r.json() })
           .then(function (d) {
-            if (d && d.ok) { setContent({ rel: d.path, text: d.text, meta: d.meta || {} }); setErr(null) }
+            if (d && d.ok) { setQueue(false); setContent({ rel: d.path, text: d.text, meta: d.meta || {} }); setErr(null) }
             else setErr((d && d.error) || '读取失败')
           })
           .catch(function () { setErr('读取失败') })
@@ -682,7 +689,74 @@ window.__ModuleLoader__.load({
         ]
       }
 
+      function refreshStats() {
+        fetch(STATS_URL).then(function (r) { return r.json() }).then(function (st) {
+          if (st && st.ok) setInboxCount(st.inboxCount || 0)
+        }).catch(function () {})
+      }
+      function draftAction(kind, file) {
+        fetch('/experience/drafts/' + kind, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file: file, category: '04-diagnosis-methodology' }),
+        }).then(function (r) { return r.json() }).then(function (d) {
+          if (d && d.ok) {
+            setErr(kind === 'promote' ? ('已认领：' + (d.rel || file)) : ('已归档 ' + file))
+            loadGaps(); loadList(); refreshStats()
+          } else setErr((d && d.error) || '操作失败')
+        }).catch(function () { setErr('操作失败') })
+      }
+      function dismissMissed(mquery) {
+        fetch('/experience/missed/dismiss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: mquery }),
+        }).then(function (r) { return r.json() }).then(function (d) {
+          if (d && d.ok) { setErr('已移除未命中'); loadGaps(); refreshStats() } else setErr('移除失败')
+        }).catch(function () { setErr('移除失败') })
+      }
+
+      // Queue view: the page's "待办" is a working list, not a reset button.
+      function queueView() {
+        var nodes = []
+        var drafts = (gaps && gaps.drafts) ? gaps.drafts : []
+        var gapsList = (gaps && gaps.signatures) ? gaps.signatures.filter(function (g) { return g.gap }) : []
+        var missed = (gaps && gaps.missed) ? gaps.missed : []
+        nodes.push(React.createElement('div', { key: 'qh', style: s.secTitle }, '待认领草稿 · ' + drafts.length))
+        if (!drafts.length) nodes.push(React.createElement('div', { key: 'qde', style: { padding: '4px 10px 12px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, '没有待认领的草稿。'))
+        drafts.forEach(function (d, i) {
+          nodes.push(React.createElement('div', { key: 'qd' + i, style: s.gapCard },
+            React.createElement('div', { style: s.gapTitle }, d.file, Tag(d.cls || 'knowledge', d.cls === 'knowledge' ? 'var(--dsw-alias-brand-primary, #3b6ef6)' : 'var(--dsw-alias-label-secondary)')),
+            React.createElement('div', { style: s.gapSub }, [d.date, d.source].filter(Boolean).join(' · ')),
+            React.createElement('div', { style: s.gapBtns },
+              React.createElement('button', { className: 'dsh-exp-btn', style: s.btn, onClick: function () { draftAction('promote', d.file) } }, '认领'),
+              React.createElement('button', { className: 'dsh-exp-btn', style: s.btn, onClick: function () { draftAction('dismiss', d.file) } }, '归档'),
+            ),
+          ))
+        })
+        nodes.push(React.createElement('div', { key: 'qg', style: s.secTitle }, '待补写缺口 · ' + gapsList.length))
+        if (!gapsList.length) nodes.push(React.createElement('div', { key: 'qge', style: { padding: '4px 10px 12px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, '没有复发且无解法的签名。'))
+        gapsList.slice(0, 8).forEach(function (g, i) {
+          nodes.push(React.createElement('div', { key: 'qgap' + i, style: s.gapCard },
+            React.createElement('div', { style: s.gapTitle }, g.id, Tag('× ' + (g.count || 1), 'var(--dsw-alias-state-warn-primary)')),
+            React.createElement('div', { style: s.gapSub }, g.sample || ''),
+          ))
+        })
+        nodes.push(React.createElement('div', { key: 'qm', style: s.secTitle }, '未命中查询 · ' + missed.length))
+        missed.slice(0, 8).forEach(function (m, i) {
+          nodes.push(React.createElement('div', { key: 'qmiss' + i, style: s.gapCard },
+            React.createElement('div', { style: s.gapTitle }, m.query, Tag('× ' + (m.count || 1), 'var(--dsw-alias-label-secondary)')),
+            React.createElement('div', { style: s.gapBtns },
+              React.createElement('button', { className: 'dsh-exp-btn', style: s.btn, onClick: function () { submitCandidate('未命中查询: ' + m.query) } }, '提交候选'),
+              React.createElement('button', { className: 'dsh-exp-btn', style: s.btn, onClick: function () { dismissMissed(m.query) } }, '移除'),
+            ),
+          ))
+        })
+        return nodes
+      }
+
       function detailView() {
+        if (queue) return queueView()
         if (inbox) return inboxView()
         if (content) return contentView()
         if (hits !== null) return hitsView()
@@ -754,7 +828,8 @@ window.__ModuleLoader__.load({
             React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
               React.createElement('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, FileIcon(15)),
               React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-                React.createElement('div', { style: s.title }, h.title, statusTags(h)),
+                React.createElement('div', { style: s.title }, h.title, statusTags(h),
+                  h.itemMeta && h.itemMeta.scope ? Tag(String(h.itemMeta.scope), 'var(--dsw-alias-label-secondary)') : null),
                 React.createElement('div', { style: s.sub }, h.rel),
                 snip && React.createElement('div', { style: { fontSize: 12, marginTop: 4, color: 'var(--dsw-alias-label-secondary)' } },
                   sm ? React.createElement('span', { style: { color: 'var(--dsw-alias-brand-primary, #3b6ef6)', fontWeight: 600, fontSize: 11 } }, sm[1] + ' ') : null,
@@ -875,7 +950,7 @@ window.__ModuleLoader__.load({
             React.createElement('div', { style: { flex: 1 } }),
             React.createElement('button', {
               className: 'dsh-exp-iconbtn', title: '库的缺口 / 建议补写',
-              onClick: function () { setInbox(null); setContent(null); setHits(null); setDir(null) }, style: s.iconBtn,
+              onClick: function () { setQueue(true); setInbox(null); setContent(null); setHits(null); setDir(null); setLib(null) }, style: s.iconBtn,
             }, '待办' + (gapCount > 0 ? ' ' + gapCount : '')),
             React.createElement('button', { className: 'dsh-exp-iconbtn', title: '待确认候选', onClick: openInbox, style: s.iconBtn }, '候选' + (inboxCount > 0 ? ' ' + inboxCount : '')),
             React.createElement('button', {
@@ -942,7 +1017,7 @@ window.__ModuleLoader__.load({
             React.createElement('span', { style: { fontWeight: 600 } }, '经验库'),
             React.createElement('div', { style: { display: 'inline-flex', gap: 2, alignItems: 'center' } },
               React.createElement('button', {
-                className: 'dsh-exp-iconbtn', title: '库的缺口 / 建议补写', onClick: function () { setInbox(null); setContent(null); setHits(null); setDir(null) }, style: s.iconBtn,
+                className: 'dsh-exp-iconbtn', title: '库的缺口 / 建议补写', onClick: function () { setQueue(true); setInbox(null); setContent(null); setHits(null); setDir(null); setLib(null) }, style: s.iconBtn,
               }, '待办' + (gapCount > 0 ? ' ' + gapCount : '')),
               React.createElement('button', {
                 className: 'dsh-exp-iconbtn', title: '待确认候选', onClick: openInbox, style: s.iconBtn,

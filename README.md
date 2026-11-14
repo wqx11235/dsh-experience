@@ -31,7 +31,11 @@
 | **缺口 → 条目闭环** | 复发但无解法的签名 + 未命中查询 + 待认领草稿 → `experience_promote` 一条命令入库（套模板/查重/同步分类 README/删草稿/重建索引/返回覆盖结果） | `lib/promote.js` / `promote()` |
 | **主动推送** | 工具失败时自动检索，命中分数过阈值就把「症状 + 避坑」注入本轮对话；按采纳率自适应阈值 | `tools/post-execute` |
 | **开口前召回** | 每轮第一步用用户原话做一次 quiet 检索，命中够强就注入一条「可能相关」提示；同一会话同一条目只提示一次 | `agent/pre-step` |
+| **召回反馈** | 只有被真的读回才算采纳；低采纳条目自动抬高自己的阈值；同一条目跨会话 7 天冷却 | `preStat()` / `preThreshold()` |
 | **失败→修复起草** | 同工具先失败、后成功时，把报错原文与成功参数自动起草成待认领条目 | `draftSolved()` |
+| **队列收口** | 草稿 14 天未认领自动归档（不删除）；「待办」页一键认领/归档、缺口与未命中同页处理 | `ageDrafts()` / `/experience/drafts/*` |
+| **融合排序** | 词法分与中文 2-gram 分始终 RRF 融合，不再只在零命中时才走模糊 | `search()` 融合段 |
+| **范围** | front-matter `scope:`：同 scope 加权、异 scope 降权；`experience_search` 可传 `scope` | `search(..., scope)` |
 | **面板** | 左侧插件栏入口 + 整页视图：左栏按库/主题导航，右栏概览、结构化正文（避坑一键复制）、搜索命中、缺口与待认领、候选池 | `client.js` |
 
 细节见 [`docs/architecture.md`](docs/architecture.md)；条目格式见 [`library/README.md`](library/README.md)。

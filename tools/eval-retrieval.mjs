@@ -95,7 +95,7 @@ function queriesFor(rel, text) {
 await stage()
 const mod = await import(pathToFileURL(join(STAGE, 'index.js')).href + `?t=${Date.now()}`)
 const { ctx, tools } = makeCtx()
-await rm(ROOT, { recursive: true, force: true })
+await rm(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 120 })
 await cp(SRC, ROOT, { recursive: true })
 await mod.default.apply(ctx, { experienceRoot: ROOT })
 const search = tools.get('experience_search')
@@ -135,4 +135,6 @@ for (const [kind, b] of Object.entries(buckets)) {
 }
 console.log(`| **all** | ${total.n} | ${pct(total.r1, total.n)} | ${pct(total.r3, total.n)} | ${pct(total.r5, total.n)} | ${pct(total.none, total.n)} |`)
 await rm(STAGE, { recursive: true, force: true })
-await rm(ROOT, { recursive: true, force: true })
+// The copied library directory is left in place (test/.tmp-*, gitignored): the
+// plugin may still be flushing .meta.json, and deleting under it only produces
+// noise on the next benchmark run.
