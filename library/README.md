@@ -41,7 +41,7 @@
 | `01-plugin-development` | 经验库检索与采集机制 | 这套库自己的打分与闭环，改之前先读 |
 | `02-configuration` | Profile 目录结构与 patch 层 | bundle / patch / profile 三层怎么叠加 |
 | `03-filesystem-and-sandbox` | 提权 justification 用中文写 | 弹窗里给用户看的那句话就是它 |
-| `04-diagnosis-methodology` | 升级运行库后页面加载失败的连锁故障 / headless 前端冒烟 | "后端 200 ≠ 前端能用"的两个实证 |
+| `04-diagnosis-methodology` | 升级运行库后页面加载失败的连锁故障 / headless 前端冒烟 / 推理重复循环 | "后端 200 ≠ 前端能用"与"后端空闲 ≠ 用户看到正常"的三个实证 |
 | `06-shell-tooling` | `.cmd`/`.bat` 里写非 ASCII 会崩启动器 | Windows 上最贵的一次静默故障 |
 | `07-web-frontend` | `.hidden` 与内联 style 的优先级 | 用 JS 改 `style.display` 为什么没反应 |
 
