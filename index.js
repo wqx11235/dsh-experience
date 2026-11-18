@@ -355,7 +355,13 @@ export default {
     }
     function saveMeta() {
       saving = saving.then(async () => {
-        try { await writeFile(META_FILE, JSON.stringify(meta, null, 2)) } catch (e) { console.error('[experience] meta save failed', e.message) }
+        try {
+          // 原子写：先写临时文件再 rename。直接 writeFile 会在写入过程中留下空/半截文件，
+          // 任何同时读 .meta.json 的一方（CI 的集成测试、面板）都会 JSON.parse 失败。
+          const tmp = META_FILE + '.tmp'
+          await writeFile(tmp, JSON.stringify(meta, null, 2))
+          await rename(tmp, META_FILE)
+        } catch (e) { console.error('[experience] meta save failed', e.message) }
       })
       return saving
     }
