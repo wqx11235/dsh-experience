@@ -12,6 +12,5 @@
 03-filesystem-and-sandbox/05-escalation-justification-in-chinese.md
 04-diagnosis-methodology/16-runtime-upgrade-plugin-incompat-critical.md
 04-diagnosis-methodology/17-cdp-headless-frontend-smoke.md
-04-diagnosis-methodology/34-reasoning-repetition-loop-thinking.md
 06-shell-tooling/05-cmd-batch-non-ascii-critical.md
 07-web-frontend/01-hidden-class-vs-inline-style.md
