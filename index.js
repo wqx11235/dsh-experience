@@ -676,14 +676,18 @@ export default {
     function noteRead(rel) {
       // Hint feedback: a read shortly after a pre-step hint is the only honest
       // signal that the hint was useful; it raises this entry's adoption rate.
+      let preDirty = false
       try {
         const st = meta.pre && meta.pre[rel]
         if (st && Date.now() - (st.lastPushTs || 0) <= 6 * 3600 * 1000 && !(st.lastReadTs >= st.lastPushTs)) {
           st.read = (st.read || 0) + 1
           st.lastReadTs = Date.now()
+          preDirty = true
         }
       } catch { /* ignore */ }
-      if (!lastSearch || !lastSearch.sigId) return
+      // 早退前必须先落盘：adoption 计数只改内存不写文件时，读一遍 .meta.json
+      // 会看到「有 push 没有 read」，集成测试据此判定失败（也是面板数字对不上的原因）。
+      if (!lastSearch || !lastSearch.sigId) { if (preDirty) saveMeta(); return }
       if (Date.now() - lastSearch.ts > RESOLVE_WINDOW_MS) return
       if (!lastSearch.rels.has(rel)) return
       const sigId = lastSearch.sigId
