@@ -1607,7 +1607,9 @@ export default {
             st.readCount = (st.readCount || 0) + 1
             meta.stats[p] = st
             noteRead(p)
-            saveMeta()
+            // 必须等落盘再返回：saveMeta 是排队写，不等的话调用方紧接着读
+            // .meta.json 会看到旧值（readCount / adoption 都记不上）。
+            await saveMeta()
             return { ok: true, path: p, text, readCount: st.readCount, confidence: confidenceOf(p) }
           } catch (err) {
             return { ok: false, error: String((err && err.message) || err) }
