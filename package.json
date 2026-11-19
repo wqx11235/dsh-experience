@@ -1,7 +1,7 @@
 {
   "name": "dsh-experience",
-  "version": "0.1.4",
-  "description": "Self-learning experience library for DeepSeek Harness: error-signature retrieval, pre-step recall with feedback, failure-to-fix drafts, one-click queue triage, and a full-page library view. No model calls, no network.",
+  "version": "0.2.0",
+  "description": "Self-learning experience library for DeepSeek Harness: error-signature retrieval with idf weighting, pre-step recall with feedback, failure-to-fix drafts, one-click queue triage, and a full-page library view. Injection is token-budgeted. No model calls, no network.",
   "type": "module",
   "main": "index.js",
   "license": "MIT",

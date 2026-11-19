@@ -28,10 +28,11 @@ tools/result ──失败──> inbox（候选）+ fixes（修复证据）
 
 ## 2. 检索打分：分三步，别混
 
-1. **粗排**（每个条目）：标题 +20 / 正文 +10（按 token）；中文 2-gram 兜底 +8（按覆盖率）；「诊断关键词」+8、「避坑」+5；全 token 命中 +30；错误签名 `weight*8`；复发热度 `repeatBoost()`（上限 12）；解法关联 `min(12, net*4)`；`severity: critical` +25；最后乘置信度 `0.5 + conf*0.5`。
+1. **粗排**（每个条目）：标题 +20 / 正文 +10（按 token，**乘 idf 权重**）；中文 2-gram 兜底 +8（按覆盖率，不乘）；「诊断关键词」+8、「避坑」+5；全 token 命中 +30；错误签名 `weight*8`；复发热度 `repeatBoost()`（上限 12）；解法关联 `min(12, net*4)`；`severity: critical` +25；最后乘置信度 `0.5 + conf*0.5`。
 2. **去重降权**：`similarMap` 里后一名 ×0.6，重排一次。
 3. **精确重排**：top15 再按「整句命中 +40」与「标题覆盖率」调整，截断返回。
 
+- **idf（2026-11-19）**：`rebuild()` 同时建 `tokenDf`（每个 ASCII 词 / CJK 2-gram 出现在多少条目里），`idfWeight(t)` 把 `log(1+N/(1+df))/log(1+N)` 映射到 **0.55~1.35**（每篇都有的词降权，只出现一次的升权）。幅度故意窄：再宽会与分区权重打架。签名与 2-gram 不乘——错误签名天然高频但高信号，削了等于自废。开关 `DSH_EXPERIENCE_NO_IDF=1` 用于 A/B。
 - 别名（`ALIASES`）以半权追加，只影响召回，不改变主 token 排序。
 - 所有 `SIGNATURES` 正则**必须带 `i`**：查询已小写化，否则签名加权、复发统计、推送账本会同时静默失效。
 
@@ -61,6 +62,11 @@ tools/result ──失败──> inbox（候选）+ fixes（修复证据）
 `ctx.on('tools/post-execute', ...)`：先 `await next()` 放行，再对失败做一次 **quiet** 检索（不动统计/热度/草稿），分数过阈值就追加一条 `additionalContexts` 通知。
 - 消息契约：`UserMessage` 必须有 `id/role/content/source`，且 `source.kind` 必须是插件自有值（如 `'dsh-experience'`）；通用 `'plugin'` 会被 v4 契约拒收。
 - 去噪：同「工具 + 错误原文」只推一次；`experience_*` 自身失败不推；阈值按 `meta.suggest` 的采纳率自适应。
+- **token 预算（2026-11-19）**：推送正文只含「避坑」，不含「症状」——报错原文就在紧邻的失败结果里。三条刹车叠加：
+  1. `relSurfaced`：同一 `rel` 30 分钟内只展开一次，之后降为一行（旧的 `工具|错误原文` 去重挡不住「同一条经验被两种报错命中」）；
+  2. 窗口预算 `SURFACE_BUDGET`（默认 4000 字符/小时），用完后只推标题+路径（`inject.capped`）；
+  3. 输出侧：`search` 有 `DSH_EXPERIENCE_SEARCH_CHARS`（默认 1200，只防爆，实测不触发——砍摘要会诱发更贵的 `experience_read`）；`experience_ask` 首条全额、后续分层压缩、总额 `DSH_EXPERIENCE_ASK_CHARS`（默认 2400）。
+  实测：24 次不同失败的注入 14519 → 6246 字符（−57%）；`ask` 1301 → 887 字符/次（−32%）。成本可观测：`GET /experience/stats` 的 `inject` 字段。
 
 ## 7. 面板
 

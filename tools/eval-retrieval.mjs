@@ -88,6 +88,24 @@ function queriesFor(rel, text) {
   if (symptom.length) {
     const code = (symptom[0].match(/`([^`]+)`/) || [])[1]
     if (code && code.length >= 4) out.push({ kind: 'error', q: code })
+    // A pasted error line is what real callers send (post-execute passes the
+    // whole message), and it carries several tokens of mixed signal — the only
+    // shape where per-token weighting can change the order. `error` above is a
+    // single code fragment, so every entry matching it gets the same idf factor
+    // and the ranking cannot move.
+    const line = symptom[0].replace(/`/g, '').replace(/^[-*]\s*/, '').trim()
+    if (line.length >= 10 && line.split(/\s+/).length >= 2) out.push({ kind: 'symptom', q: line.slice(0, 200) })
+  }
+  // Prose bucket: the first real body paragraph, stripped of headings, code
+  // fences and the title words. This is the closest stand-in for how a person
+  // describes a problem ("改了配置但面板没变") rather than quoting an entry.
+  const prose = text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !/^(<!--|#{1,6}\s|---|>|\||\s*[-*]\s*[|`])/.test(l))
+    .map(l => l.replace(/[`*_]/g, '').replace(/^[-*]\s*/, ''))
+  if (prose.length) {
+    const q = prose[0].slice(0, 60)
+    if (q.length >= 12) out.push({ kind: 'prose', q })
   }
   return out.map(x => ({ ...x, rel }))
 }

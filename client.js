@@ -498,9 +498,15 @@ window.__ModuleLoader__.load({
       }
       var activeLib = null
       if (data && data.libraries && lib) {
-        for (var li = 0; li < data.libraries.length; li++) {
-          if (data.libraries[li].id === lib) { activeLib = data.libraries[li]; break }
+        var findLib = function (list, id) {
+          for (var li = 0; li < (list || []).length; li++) {
+            if (list[li].id === id) return list[li]
+            var hit = findLib(list[li].children, id)
+            if (hit) return hit
+          }
+          return null
         }
+        activeLib = findLib(data.libraries, lib)
       }
 
       // ── view helpers ──
@@ -768,7 +774,27 @@ window.__ModuleLoader__.load({
       // 库视图：一个库下的所有"技术主题"目录。
       function libView(lb) {
         var nodes = []
-        nodes.push(React.createElement('div', { key: 'ld-h', style: s.secTitle }, lb.name + ' · ' + lb.dirs.length + ' 个主题目录'))
+        var subs = lb.children || []
+        nodes.push(React.createElement('div', { key: 'ld-h', style: s.secTitle },
+          lb.name + (lb.desc ? ' · ' + lb.desc : '') + (subs.length ? ' · ' + subs.length + ' 个分支库' : '') + (lb.dirs.length ? ' · ' + lb.dirs.length + ' 个目录' : '')))
+        // 分支库：可继续下钻
+        subs.forEach(function (ch, ci) {
+          nodes.push(React.createElement('div', {
+            key: 'lc' + ci, className: 'dsh-exp-row', style: s.row,
+            onClick: function () { setLib(ch.id); setDir(null); setContent(null); setHits(null); setInbox(null) },
+          },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+              React.createElement('span', { className: 'dsh-exp-chev' }, ChevronIcon(13)),
+              React.createElement('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, FolderIcon(15)),
+              React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                React.createElement('div', { style: s.title }, ch.name, Tag(String(ch.count), 'var(--dsw-alias-label-secondary)'),
+                  (ch.children || []).length ? Tag((ch.children || []).length + ' 个分支', 'var(--dsw-alias-label-secondary)') : null),
+                React.createElement('div', { style: s.sub }, ch.desc || ''),
+              ),
+            ),
+          ))
+        })
+        // 文件夹（叶子目录）
         lb.dirs.forEach(function (d) {
           nodes.push(React.createElement('div', {
             key: 'ld' + d.dir, className: 'dsh-exp-row', style: s.row,

@@ -221,6 +221,18 @@ const LIBRARIES = [
   { id: 'templates', name: '模板库', desc: '可复制的插件骨架与经验模板', dirs: ['99-templates'] },
 ]
 
+// 自定义库配置：优先读 <ROOT>/.libraries.json（缺失或损坏时退回上面的内置 LIBRARIES）。
+// 支持三级：库 → 分支库（children，可继续嵌套）→ 文件夹（叶子 dirs）。
+// dirs 写相对 ROOT 的目录路径，可以是多级（如 10-learning/math/学习内容）。
+async function readLibraryDefs() {
+  try {
+    const txt = await readFile(ROOT + '/.libraries.json', 'utf8')
+    const j = JSON.parse(txt)
+    if (j && Array.isArray(j.libraries) && j.libraries.length) return j.libraries
+  } catch (err) { /* 无配置文件就用内置默认 */ }
+  return LIBRARIES
+}
+
 function isCJK(ch) {
   const c = ch.charCodeAt(0)
   return (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF)
@@ -382,7 +394,24 @@ export default {
     let catalog = { categories: [], guide: [], warnings: [], similar: [] }
     // A2: rel -> Set(near-duplicate rels), rebuilt together with the index.
     let similarMap = {}
+    // P0-1 (idf): token -> number of entries containing it, plus the entry
+    // count. Rebuilt with the index. Without this, "error" / "配置" / "路径"
+    // score exactly like "ERR_MODULE_NOT_FOUND" and drown the one token that
+    // actually identifies the failure.
+    let tokenDf = new Map()
+    let tokenN = 0
     let stamp = ''
+
+    // 0.55 for a token that appears in every entry, 1.35 for one that appears
+    // in exactly one. Deliberately narrow: wider starts fighting the
+    // section weights (诊断关键词 +8 / 避坑 +5) instead of sharpening them.
+    function idfWeight(t) {
+      if (process.env.DSH_EXPERIENCE_NO_IDF === '1') return 1
+      if (!tokenN) return 1
+      const df = tokenDf.get(t) || 1
+      const norm = Math.log(1 + tokenN / (1 + df)) / Math.log(1 + tokenN)
+      return 0.55 + 0.8 * Math.max(0, Math.min(1, norm))
+    }
 
     function confidenceOf(rel) {
       return typeof meta.confidence[rel] === 'number' ? meta.confidence[rel] : 1
@@ -403,6 +432,18 @@ export default {
         }
         index = items
 
+        // df table for idfWeight(). Kept to the same token shapes search()
+        // matches on: ASCII words as written, CJK as bigrams.
+        tokenDf = new Map()
+        tokenN = items.length
+        for (const it of items) {
+          const low = it.text.toLowerCase()
+          const seen = new Set()
+          for (const w of low.match(/[a-z0-9][a-z0-9_./-]{1,}/g) || []) seen.add(w)
+          for (const g of bigramsOf(it.title + ' ' + low)) seen.add(g)
+          for (const t of seen) tokenDf.set(t, (tokenDf.get(t) || 0) + 1)
+        }
+
         const guide = []
         const rootDoc = docs['README.md']
         if (rootDoc) {
@@ -411,10 +452,12 @@ export default {
           while ((m = re.exec(rootDoc.text))) guide.push({ scene: m[1].trim(), target: m[2].trim() })
         }
 
+        // 目录分组按**完整目录路径**（支持任意深度，如 10-learning/math/学习内容）。
         const byDir = {}
         for (const rel of Object.keys(docs)) {
           if (rel === 'README.md') continue
-          const dir = rel.includes('/') ? rel.split('/')[0] : '(root)'
+          const cut = rel.lastIndexOf('/')
+          const dir = cut === -1 ? '(root)' : rel.slice(0, cut)
           if (!byDir[dir]) byDir[dir] = []
           byDir[dir].push(rel)
         }
@@ -435,13 +478,19 @@ export default {
           categories.push({ dir, summary, count: filesArr.length, files: filesArr })
         }
 
-        const libraries = LIBRARIES.map(def => {
-          const dirs = def.dirs
+        // 自定义库：库树来自 <ROOT>/.libraries.json（缺失则退回内置 LIBRARIES）。
+        // 三级结构：库 → 分支库（children，可继续嵌套）→ 文件夹（叶子 dirs）。
+        const libDefs = await readLibraryDefs()
+        const buildLib = (def) => {
+          const dirs = (def.dirs || [])
             .map(d => categories.find(c => c.dir === d))
             .filter(Boolean)
-            .map(c => ({ dir: c.dir, count: c.count, summary: c.summary }))
-          return { id: def.id, name: def.name, desc: def.desc, dirs, count: dirs.reduce((a, d) => a + d.count, 0) }
-        }).filter(l => l.dirs.length > 0)
+            .map(c => ({ dir: c.dir, name: c.dir.split('/').pop(), count: c.count, summary: c.summary }))
+          const children = (def.children || []).map(buildLib).filter(c => c.dirs.length > 0 || c.children.length > 0)
+          const count = dirs.reduce((a, d) => a + d.count, 0) + children.reduce((a, c) => a + c.count, 0)
+          return { id: def.id, name: def.name, desc: def.desc || '', dirs, children, count }
+        }
+        const libraries = libDefs.map(buildLib).filter(l => l.dirs.length > 0 || l.children.length > 0)
 
         const warnings = checkLinks(docs)
 
@@ -829,8 +878,8 @@ export default {
         for (const { t, w } of tokens) {
           const ti = title.indexOf(t)
           const bi = text.indexOf(t)
-          if (ti >= 0) { score += Math.round(20 * w); matched++; if (w === 1) hitCount++ }
-          else if (bi >= 0) { score += Math.round(10 * w); matched++; if (w === 1) hitCount++; if (bodyIdx < 0) bodyIdx = bi }
+          if (ti >= 0) { score += Math.round(20 * w * idfWeight(t)); matched++; if (w === 1) hitCount++ }
+          else if (bi >= 0) { score += Math.round(10 * w * idfWeight(t)); matched++; if (w === 1) hitCount++; if (bodyIdx < 0) bodyIdx = bi }
           else {
             const grams = bigramsOf(t)
             if (grams.length) {
@@ -938,6 +987,19 @@ export default {
       let hits = scored.slice(0, Math.max(1, Number(limit) || 5)).map(({ item, firstIdx }) => ({
         rel: item.rel, title: item.title, snippet: makeSnippet(item.text, firstIdx, item.title), itemMeta: item.meta,
       }))
+      // Output budget: five hits each carrying a 180-char snippet is ~1000
+      // tokens per call, and the tail hits are usually noise. Past the budget
+      // the pointer stays and only the snippet is dropped, so nothing
+      // disappears from the list — cheap enough to keep all five titles.
+      const SEARCH_CHARS = Number(process.env.DSH_EXPERIENCE_SEARCH_CHARS || 1200)
+      if (hits.length > 1) {
+        let spent = 0
+        hits = hits.map((h) => {
+          const cost = h.rel.length + h.title.length + (h.snippet || '').length + 24
+          if (spent + cost <= SEARCH_CHARS) { spent += cost; return h }
+          return { ...h, snippet: '（摘要略 — 需要时 experience_read）' }
+        })
+      }
       if (!quiet) for (const h of hits) {
         const st = meta.stats[h.rel] || {}
         st.hitCount = (st.hitCount || 0) + 1
@@ -1412,6 +1474,16 @@ export default {
           })(),
           verified: Object.entries(meta.verify).filter(([, v]) => Object.values(v.results).every(Boolean)).length,
           failed: Object.entries(meta.verify).filter(([, v]) => Object.values(v.results).some(x => !x)).length,
+          // Cost visibility: what this plugin pushed into conversations and how
+          // much the brakes saved. Every field is a running total since boot.
+          inject: {
+            pushed: surfaceStats.pushed,
+            chars: surfaceStats.chars,
+            deduped: surfaceStats.deduped,
+            capped: surfaceStats.capped,
+            budget: SURFACE_BUDGET,
+            used: surfaceChars,
+          },
         })
       }}))
       ctx.effect(() => webServer.register({ kind: 'exact', path: '/experience/gaps', handler: async (req, res) => {
@@ -1635,18 +1707,32 @@ export default {
           if (!r.hits.length) return { ok: true, answer: '经验库未命中。可补充经验或换关键词。', sources: [] }
           const blocks = []
           const sources = []
+          const ASK_CHARS = Number(process.env.DSH_EXPERIENCE_ASK_CHARS || 2400)
+          let spent = 0
           for (const h of r.hits) {
             sources.push(h.rel)
             let text = ''
             try { text = await readFile(resolve(ROOT, h.rel), 'utf8') } catch { /* ignore */ }
-            const grab = (label) => {
-              const m = text.match(new RegExp(`##\\s*${label}[\\s\\S]{0,600}?(?=\\n##\\s|$)`))
-              return m ? m[0].replace(/^##\s.*\n/, '').replace(/\s+/g, ' ').trim().slice(0, 400) : ''
+            const grab = (label, max) => {
+              const m = text.match(new RegExp(`##\\s*${label}[\\s\\S]{0,${max * 2}}?(?=\\n##\\s|$)`))
+              return m ? m[0].replace(/^##\s.*\n/, '').replace(/\s+/g, ' ').trim().slice(0, max) : ''
             }
-            const sym = grab('症状')
-            const cause = grab('原因')
-            const fix = grab('避坑')
-            blocks.push(`【${h.title}】(${h.rel})${h.stale ? ' [可能过时]' : ''}\n- 症状: ${sym || '—'}\n- 原因: ${cause || '—'}\n- 避坑: ${fix || h.snippet}`)
+            // Budget: the first hit gets the full shape (200/300/400), later hits
+            // are compressed, and past the total budget only the fix line
+            // survives — three full blocks were ~2500 tokens for one call.
+            const first = blocks.length === 0
+            const over = spent >= ASK_CHARS
+            const sym = grab('症状', first ? 200 : (over ? 0 : 100))
+            const cause = grab('原因', first ? 300 : (over ? 0 : 160))
+            const fix = grab('避坑', first ? 400 : (over ? 160 : 200))
+            let block
+            if (over && !first) {
+              block = `【${h.title}】(${h.rel})\n- 避坑: ${fix || h.snippet}`
+            } else {
+              block = `【${h.title}】(${h.rel})${h.stale ? ' [可能过时]' : ''}\n- 症状: ${sym || '—'}\n- 原因: ${cause || '—'}\n- 避坑: ${fix || h.snippet}`
+            }
+            spent += block.length
+            blocks.push(block)
           }
           return { ok: true, answer: blocks.join('\n\n'), sources }
         },
@@ -1851,7 +1937,21 @@ export default {
     // remembering to search. Same seam as dsh-repeat-tool-reminder:
     // tools/post-execute + additionalContexts.
     const SURFACE_MIN = 55
+    // Token budget for surfacing. A failure push is the single most expensive
+    // thing this plugin emits (one entry's 避坑 can be 300 chars ≈ 200 tokens),
+    // and a long debugging session can fail dozens of times. Three brakes:
+    //   · same entry already expanded recently → one line, not the full body
+    //   · a window-wide character budget → only title+path after it is spent
+    //   · the 症状 section is dropped: the agent already has the error text in
+    //     the tool result that just failed, so repeating it is pure overhead.
+    const SURFACE_BUDGET = Number(process.env.DSH_EXPERIENCE_SURFACE_BUDGET || 4000)
+    const SURFACE_WINDOW_MS = 60 * 60 * 1000
+    const SURFACE_REPEAT_MS = 30 * 60 * 1000
     const surfaced = new Set()
+    const relSurfaced = new Map()
+    let surfaceChars = 0
+    let surfaceWindowTs = Date.now()
+    let surfaceStats = { pushed: 0, chars: 0, deduped: 0, capped: 0 }
     const sigIdOf = (text) => signatureWeight(String(text || '').toLowerCase()).id
     function errorTextOf(result) {
       if (result.error && result.error.message) return String(result.error.message)
@@ -1891,7 +1991,28 @@ export default {
         }
         let body = ''
         try { body = await readFile(resolve(ROOT, h.rel), 'utf8') } catch { /* ignore */ }
-        const text = `【经验库命中】${h.title}（${h.rel}）\n- 症状: ${sectionOf(body, '症状') || '—'}\n- 避坑: ${sectionOf(body, '避坑') || h.snippet}\n如需全文：experience_read path="${h.rel}"`
+        const now = Date.now()
+        if (now - surfaceWindowTs > SURFACE_WINDOW_MS) { surfaceWindowTs = now; surfaceChars = 0; relSurfaced.clear() }
+        const lastExpanded = relSurfaced.get(h.rel) || 0
+        const repeat = now - lastExpanded < SURFACE_REPEAT_MS
+        const capped = !repeat && surfaceChars >= SURFACE_BUDGET
+        let text
+        if (repeat || capped) {
+          // Cheap form: the agent has seen this entry's body recently, or the
+          // window budget is spent. Still says where to look.
+          text = `【经验库 · 同前】${h.title}（${h.rel}）${capped ? ' · 本小时注入额度已满' : ' · 最近已展开过'}，需要时 experience_read。`
+          if (repeat) surfaceStats.deduped++
+          else surfaceStats.capped++
+        } else {
+          // No 症状 line: the failing tool result right above already carries
+          // the error text — repeating it costs ~100-300 chars for nothing.
+          const fix = sectionOf(body, '避坑', 300) || h.snippet
+          text = `【经验库命中】${h.title}（${h.rel}）\n- 避坑: ${fix}\n如需看症状与全文：experience_read path="${h.rel}"`
+          relSurfaced.set(h.rel, now)
+          surfaceChars += text.length
+        }
+        surfaceStats.pushed++
+        surfaceStats.chars += text.length
         const notice = {
           id: crypto.randomUUID(),
           role: 'user',

@@ -1,10 +1,11 @@
-<!-- date: 2026-10-29; source: dsh-experience v0.1.0 开源发布 -->
+<!-- date: 2026-11-19; source: dsh-experience v0.2.0 —— idf 词频权重 + token 预算 -->
 # dsh-experience
 
 > 给 DeepSeek Harness 的**自学习经验库**：把踩过的坑变成可检索的本地知识，在错误发生的那一刻自动递到 agent 面前，并在收尾时把"问题"变成"条目"。
 > Self-learning experience library for DeepSeek Harness: local, indexed markdown knowledge that is retrieved at the moment of failure and closed into new entries afterwards.
 
 没有模型调用、没有向量库、没有联网上报。检索是纯本地打分，索引每 3 秒跟磁盘对齐。
+**插入是预算制的**：失败时只递一条经验里可执行的那半（避坑），不带症状（报错原文就在紧邻的工具结果里），同一条目 30 分钟内只展开一次，每小时有字符上限。
 
 <p align="center">
   <img src="assets/demo.gif" alt="dsh-experience 演示" width="860">
@@ -24,12 +25,14 @@
 | 机制 | 作用 | 代码 |
 | --- | --- | --- |
 | **分区加权检索** | 标题/正文命中之外，命中「诊断关键词」+8、「避坑」+5；中文按 2-gram 兜底；别名半权扩展 | `search()` / `zoneText()` / `ALIASES` |
+| **idf 词频权重** | 每篇都出现的词（`error` / `配置` / `路径`）降权到 0.55，只出现一次的升到 1.35；签名与 2-gram 不乘 | `idfWeight()` / `tokenDf` |
 | **错误签名路由** | `ERR_MODULE_NOT_FOUND`、`EPERM`、`fetch failed`、`Error NNN` 等签名给专属加权，并记录复发频率 | `SIGNATURES` / `signatureWeight()` / `repeatBoost()` |
 | **精确重排与去重** | top15 用整句命中/标题覆盖率重排；近似条目后一名 ×0.6；`severity: critical` 提权 | `similarMap` / `search()` 尾部 |
 | **read-as-click 闭环** | "按签名搜 → 读命中条目"记为解法（`resolveMap`）；同签名短时间内真实复发则记 miss 降权 | `noteRead()` / `pendingRead` |
 | **失败采集 + 修复证据** | `tools/result` 的 `isError`（或 `value.ok === false`）进候选；同工具 30 分钟内成功调用参数回填为"修复证据" | `tools/result` 监听 |
 | **缺口 → 条目闭环** | 复发但无解法的签名 + 未命中查询 + 待认领草稿 → `experience_promote` 一条命令入库（套模板/查重/同步分类 README/删草稿/重建索引/返回覆盖结果） | `lib/promote.js` / `promote()` |
-| **主动推送** | 工具失败时自动检索，命中分数过阈值就把「症状 + 避坑」注入本轮对话；按采纳率自适应阈值 | `tools/post-execute` |
+| **主动推送** | 工具失败时自动检索，命中分数过阈值就把该条目的「避坑」注入本轮对话（**不注入症状**——报错原文就在紧邻的失败结果里）；按采纳率自适应阈值 | `tools/post-execute` |
+| **token 预算** | 同一条目 30 分钟内只展开一次；每小时 4000 字符封顶后只给标题+路径；`experience_ask` 首条全额、后续压缩。实测 24 次失败注入省 57%、`ask` 省 32% | `relSurfaced` / `SURFACE_BUDGET` / `ASK_CHARS` |
 | **开口前召回** | 每轮第一步用用户原话做一次 quiet 检索，命中够强就注入一条「可能相关」提示；同一会话同一条目只提示一次 | `agent/pre-step` |
 | **召回反馈** | 只有被真的读回才算采纳；低采纳条目自动抬高自己的阈值；同一条目跨会话 7 天冷却 | `preStat()` / `preThreshold()` |
 | **失败→修复起草** | 同工具先失败、后成功时，把报错原文与成功参数自动起草成待认领条目 | `draftSolved()` |
@@ -46,17 +49,21 @@
 node tools/eval-retrieval.mjs <库目录>
 ```
 
-从条目自身造查询（标题 / 诊断关键词 / 症状里的报错原文），测 R@1 / R@3 / R@5 / no-match。
-本机 471 条查询（203 条经验）实测：
+从条目自身造查询（标题 / 诊断关键词 / 正文首段 / 症状里的报错原文），测 R@1 / R@3 / R@5 / no-match。
+本机 243 条经验、904 条查询实测：
 
 | bucket | n | R@1 | R@5 | no-match |
 | --- | ---: | ---: | ---: | ---: |
-| 标题 | 203 | 100% | 100% | 0% |
-| 诊断关键词 | 163 | 98.8% | 100% | 0% |
-| 报错原文 | 105 | 72.4% | 92.4% | 7.6% |
-| **合计** | **471** | **93.4%** | **98.3%** | **1.7%** |
+| 标题 | 243 | 100% | 100% | 0% |
+| 诊断关键词 | 198 | 98.5% | 100% | 0% |
+| 正文首段（近似自然语言提问） | 212 | 83.0% | 87.7% | 12.3% |
+| 整行报错 | 125 | 94.4% | 99.2% | 0.8% |
+| 报错片段 | 126 | 70.6% | 90.5% | 9.5% |
+| **合计** | **904** | **90.8%** | **95.7%** | **4.3%** |
 
-注意：查询由条目派生，分数偏乐观，不代表自然语言提问。**报错原文检索是最弱的一档**，也是下一步要调的。
+注意：查询由条目派生，分数偏乐观。真正贴近使用的两档是**正文首段**（描述现象，83.0%）与**报错片段**（70.6%），它们也是最弱的两档——标题的 100% 是自造查询的虚高，不能拿来自夸。
+
+idf 的 A/B（`DSH_EXPERIENCE_NO_IDF=1` 可关）：合计 89.8% → 90.8%，正文首段 80.7% → 83.0%，整行报错 91.2% → 94.4%。`报错片段` 桶不变是数学决定的——单 token 查询下所有命中项乘同一系数，排序不可能变。
 
 ## 安装
 
@@ -99,6 +106,17 @@ HTTP 端点（面板同源使用）：`/experience/list`、`/search`、`/read`�
     experienceRoot: '/absolute/path/to/experience'
     seed: false
 ```
+
+环境变量（都是可选，用于调预算或做 A/B）：
+
+| 变量 | 默认 | 作用 |
+| --- | --- | --- |
+| `DSH_EXPERIENCE_ROOT` | `~/.dsh/experience` | 库根 |
+| `DSH_EXPERIENCE_NO_IDF` | — | 设 `1` 关掉 idf 词频权重（A/B 用） |
+| `DSH_EXPERIENCE_SURFACE_BUDGET` | `4000` | 失败注入的每小时字符预算，用完后只推标题+路径 |
+| `DSH_EXPERIENCE_SEARCH_CHARS` | `1200` | `experience_search` 单次输出预算（只防爆） |
+| `DSH_EXPERIENCE_ASK_CHARS` | `2400` | `experience_ask` 单次输出总预算 |
+| `DSH_EXPERIENCE_PRE_MIN` / `_PRE_COOLDOWN_H` | `40` / `168` | 开口前召回的阈值与跨会话冷却 |
 
 ## 两条库的边界（不要混）
 
